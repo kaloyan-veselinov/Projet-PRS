@@ -15,3 +15,12 @@ all : ../bin/serveur1-$(NOMGRP) ../bin/serveur2-$(NOMGRP) ../bin/serveur3-$(NOMG
 
 %.o: %.c %.h
 	gcc $(CFLAGS) -c $< -o $@
+
+clean:
+	rm -rf ./*.o
+
+mrproper: clean
+	rm -rf ../bin/serveur1-$(NOMGRP) ../bin/serveur2-$(NOMGRP) ../bin/serveur3-$(NOMGRP)
+
+tar: clean
+	cd .. && tar -czvf $(NOMGRP).tar.gz src/ bin/
