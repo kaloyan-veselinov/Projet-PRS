@@ -1,5 +1,7 @@
 #include "socket.h"
 
+int initialized = 0;
+
 struct sockaddr_in init_addr(int port, int addr) {
   struct sockaddr_in my_addr;
   memset((char*)&my_addr,0,sizeof(my_addr));
@@ -35,6 +37,13 @@ int my_bind(int socket, struct sockaddr* addr) {
   return EXIT_SUCCESS;
 }
 
+int random_port() {
+  if(!initialized) {
+    srand(time(NULL));
+    initialized = 1;
+  }
+  return (1000+rand())%10000;
+}
 
 int my_accept(int desc, struct sockaddr_in* addr) {
 
@@ -56,13 +65,14 @@ int my_accept(int desc, struct sockaddr_in* addr) {
   }
   printf("SYN reçu.\n");
 
-  struct sockaddr_in data_addr;
-  int data_desc = create_socket(0);
-  getsockname(data_desc, (struct sockaddr*) &data_addr, &addr_len);
+  int data_desc, port;
+  do {
+    port = random_port();
+    data_desc = create_socket(port);
+  } while(data_desc==-1);
+  printf("Port : %d\n", port);
 
-  printf("Port : %d\n", data_addr.sin_port);
-
-  sprintf(msg, "SYN-ACK%04d", ntohs(data_addr.sin_port));
+  sprintf(msg, "SYN-ACK%04d", port);
   sendto(desc,msg,strlen(msg)+1,0, (struct sockaddr*) &addr, addr_len);
   printf("SYN-ACK envoyé\n");
 
