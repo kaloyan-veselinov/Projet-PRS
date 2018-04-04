@@ -76,6 +76,7 @@ int my_accept(int desc, struct sockaddr_in* addr) {
   sendto(desc,msg,strlen(msg)+1,0, (struct sockaddr*) &addr, addr_len);
   printf("SYN-ACK envoyé\n");
 
+  // TODO add timer
   if(recvfrom(desc,msg,RCVSIZE,0, (struct sockaddr*) &addr, &addr_len)==-1){
     perror("Erreur de réception du ACK de connexion\n.");
     return EXIT_FAILURE;
