@@ -13,6 +13,9 @@ struct sockaddr_in init_addr(int port, int addr) {
 }
 
 int create_socket(int port) {
+    #if DEBUG
+    printf("Creating socket on port %d\n", port);
+    #endif
     struct sockaddr_in adresse = init_addr(port, INADDR_ANY);
     int desc = socket(AF_INET, SOCK_DGRAM, 0);
     int valid = 1;
@@ -24,12 +27,20 @@ int create_socket(int port) {
 
     setsockopt(desc, SOL_SOCKET, SO_REUSEADDR, &valid, sizeof(int));
 
+
     my_bind(desc,(struct sockaddr *)&adresse);
+
+    #if DEBUG
+    printf("Socket created on port %d\n", port);
+    #endif
 
     return desc;
 }
 
 int my_bind(int socket, struct sockaddr* addr) {
+  #if DEBUG
+  printf("Binding socket on port %d\n", ntohs(((struct sockaddr_in *)addr)->sin_port));
+  #endif
   if (bind (socket, addr , sizeof(*addr)) < 0) {
     fprintf(stderr, "Erreur de bind de la socket\n");
     return EXIT_FAILURE;
@@ -42,7 +53,11 @@ int random_port() {
     srand(time(NULL));
     initialized = 1;
   }
-  return (1000+rand())%10000;
+  int port = (1000+rand())%10000;
+  #if DEBUG
+  printf("Generated random port %d\n", port);
+  #endif
+  return port;
 }
 
 int my_accept(int desc, struct sockaddr_in* addr) {
@@ -53,17 +68,22 @@ int my_accept(int desc, struct sockaddr_in* addr) {
   socklen_t addr_len = sizeof(addr);
   memset(addr, 0, addr_len);
 
-
-  if(recvfrom(desc,msg,RCVSIZE,0, (struct sockaddr *)&addr, &addr_len)==-1){
+  #if DEBUG
+  printf("Wainting for SYN on desc %d \n", desc);
+  #endif
+  if(recvfrom(desc,msg,SYN_SIZE,0, (struct sockaddr *)&addr, &addr_len)==-1){
     perror("Error receiving on connection socket");
     return EXIT_FAILURE;
   }
+  #if DEBUG
+  printf("SYN received on desc %d: %s \n", desc, msg);
+  #endif
 
-  if (strncmp("SYN", msg, strlen("SYN")) != 0) {
+  if (strncmp("SYN", msg, SYN_SIZE) != 0) {
     perror("Mauvais message de connexion\n");
     return EXIT_FAILURE;
   }
-  printf("SYN reçu.\n");
+  printf("SYN confirmé\n");
 
   int data_desc, port;
   do {
@@ -74,9 +94,14 @@ int my_accept(int desc, struct sockaddr_in* addr) {
 
   sprintf(msg, "SYN-ACK%04d", port);
   sendto(desc,msg,strlen(msg)+1,0, (struct sockaddr*) &addr, addr_len);
+  #if DEBUG
   printf("SYN-ACK envoyé\n");
+  #endif
 
   // TODO add timer
+  #if DEBUG
+  printf("Waiting for ACK from client\n");
+  #endif
   if(recvfrom(desc,msg,RCVSIZE,0, (struct sockaddr*) &addr, &addr_len)==-1){
     perror("Erreur de réception du ACK de connexion\n.");
     return EXIT_FAILURE;

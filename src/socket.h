@@ -15,10 +15,16 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#define DEBUG 1
+
+#define TRUE 1
+#define FALSE 0
+
 #define RCVSIZE 1024
 #define HEADER_SIZE 6
 #define DATA_SIZE (RCVSIZE-HEADER_SIZE)
 #define ACK_SIZE (HEADER_SIZE+3)
+#define SYN_SIZE 4*sizeof(char)
 
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
