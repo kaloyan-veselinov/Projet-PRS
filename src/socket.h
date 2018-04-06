@@ -21,7 +21,7 @@
 #define FALSE 0
 
 #define RCVSIZE 1024
-#define HEADER_SIZE 6
+#define HEADER_SIZE 7
 #define DATA_SIZE (RCVSIZE-HEADER_SIZE)
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)

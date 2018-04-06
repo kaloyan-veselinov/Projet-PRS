@@ -1,78 +1,109 @@
 #include "serveur1-PerformancesRadicalementSuperieures.h"
 
-int desc, data_desc;
-FILE* file;
+int   desc, data_desc;
+FILE *file;
 struct sockaddr_in adresse;
-pthread_mutex_t start;
+pthread_mutex_t    start;
 socklen_t addr_len;
-int data_desc_open=FALSE;
-int file_open=FALSE;
-int desc_open=FALSE;
+int data_desc_open = FALSE;
+int file_open      = FALSE;
+int desc_open      = FALSE;
+
+void send_disconnect_message() {
+  sendto(data_desc,
+         "FIN",
+         4 * sizeof(char),
+         0,
+         (struct sockaddr *)&adresse,
+         sizeof(adresse));
+}
 
 void end_handler() {
   #if DEBUG
   printf("Entering end handler\n");
-  #endif
-  if(data_desc_open) close(data_desc);
-  if(desc_open) close(desc);
-  if(file_open) fclose(file);
+  #endif /* if DEBUG */
+
+  send_disconnect_message();
+
+  if (data_desc_open) close(data_desc);
+
+  if (desc_open) close(desc);
+
+  if (file_open) fclose(file);
   exit(EXIT_SUCCESS);
 }
 
-void *send_thread(void *arg) {
+void* send_thread(void *arg) {
   #if DEBUG
   printf("Entering send thread\n");
-  #endif
-  int bytes_read;
-  int sequence_nb = 1;
-  int snd;
-  char buffer[RCVSIZE+1];
-  if(pthread_mutex_unlock(&start)!=0) perror("Err unlocking start\n");
+  #endif /* if DEBUG */
+  int  bytes_read;
+  int  sequence_nb = 1;
+  int  snd;
+  char buffer[RCVSIZE + 1];
+
+  if (pthread_mutex_unlock(&start) != 0) perror("Err unlocking start\n");
   #if DEBUG
   printf("Starting transmission\n");
-  #endif
-  do{
+  #endif /* if DEBUG */
+
+  do {
     memset(buffer, '\0', RCVSIZE);
     sprintf(buffer, "%06d", sequence_nb);
-    bytes_read = fread(buffer+HEADER_SIZE, 1, DATA_SIZE, file);
-    if(bytes_read==0) {
-      memset(buffer, '\0', RCVSIZE);
-      strcpy(buffer, "FIN");
-      printf("EOF\n");
-    }
-    else if(bytes_read==-1) perror("Error reading file\n");
+    bytes_read = fread(buffer + HEADER_SIZE, 1, DATA_SIZE, file);
 
-    snd=sendto(data_desc, buffer, RCVSIZE, 0, (struct sockaddr *)&adresse, sizeof(adresse));
-    if(snd<0){
-      perror("Error sending segment\n");
-      pthread_exit(NULL);
+    if (bytes_read == -1) perror("Error reading file\n");
+    else if (bytes_read > 0) {
+      snd = sendto(data_desc,
+                   buffer,
+                   RCVSIZE,
+                   0,
+                   (struct sockaddr *)&adresse,
+                   sizeof(adresse));
+
+      if (snd < 0) {
+        perror("Error sending segment\n");
+        pthread_exit(NULL);
+      }
+      #if DEBUG
+      printf("Sent segment %06d\n", sequence_nb);
+      #endif /* if DEBUG */
+      sequence_nb++;
     }
-    #if DEBUG
-    printf("Sent segment %06d\n", sequence_nb);
-    #endif
-    sequence_nb++;
-  } while(bytes_read != 0);
+  } while (bytes_read != 0);
   pthread_exit(NULL);
 }
 
-void *ack_thread(void *arg) {
+void* ack_thread(void *arg) {
   #if DEBUG
   printf("Entering ack thread\n");
-  #endif
+  #endif /* if DEBUG */
   pthread_mutex_lock(&start);
-  char buffer[ACK_SIZE+1];
+  #if DEBUG
+  printf("ACK thread unlocked\n");
+  #endif /* if DEBUG */
+  char buffer[ACK_SIZE + 1];
   struct sockaddr_in src_addr;
   int rcv;
 
-  do{
-    memset(buffer, '\0', ACK_SIZE+1);
-    rcv=recvfrom(desc, buffer, ACK_SIZE, 0, (struct sockaddr *)&src_addr, &addr_len);
-    if(rcv<0) {
+  do {
+    memset(buffer, '\0', ACK_SIZE + 1);
+    #if DEBUG
+    printf("Waiting ACK\n");
+    #endif /* if DEBUG */
+    rcv = recvfrom(data_desc,
+                   buffer,
+                   ACK_SIZE,
+                   0,
+                   (struct sockaddr *)&src_addr,
+                   &addr_len);
+
+    if (rcv < 0) {
       perror("Error receiving ACK\n");
       pthread_exit(NULL);
     }
     printf("%s\n", buffer);
-  } while(strncmp(buffer, "END", strlen("END")+1)!=0);
+  } while (strncmp(buffer, "END", strlen("END") + 1) != 0);
 
   // TODO perte de packets
 
@@ -83,36 +114,40 @@ int main(int argc, char const *argv[]) {
   signal(SIGTSTP, end_handler);
 
   struct sockaddr_in src_addr;
-  socklen_t addr_len = sizeof(src_addr);
-  char buffer[RCVSIZE] = {0};
+  socklen_t addr_len   = sizeof(src_addr);
+  char buffer[RCVSIZE] = { 0 };
 
   int port;
-  if(argc==2) port = atoi(argv[1]);
+
+  if (argc == 2) port = atoi(argv[1]);
   else port = 4242;
-  desc = create_socket(port);
+  desc      = create_socket(port);
   desc_open = TRUE;
 
   memset(&src_addr, 0, addr_len);
-  data_desc = my_accept(desc, &src_addr);
+  data_desc      = my_accept(desc, &src_addr);
   data_desc_open = TRUE;
   #if DEBUG
   printf("Data file descriptor: %d\n", data_desc);
-  #endif
+  #endif /* if DEBUG */
 
   #if DEBUG
   printf("Waiting for file name\n");
-  #endif
-  if(recvfrom(data_desc, buffer, sizeof(buffer), 0, (struct sockaddr *)&src_addr, &addr_len)==-1) {
+  #endif /* if DEBUG */
+
+  if (recvfrom(data_desc, buffer, sizeof(buffer), 0, (struct sockaddr *)&src_addr,
+               &addr_len) == -1) {
     perror("Error receiving file name\n");
     end_handler();
   }
-  adresse=src_addr;
+  adresse = src_addr;
 
   #if DEBUG
   printf("Opening file\n");
-  #endif
+  #endif /* if DEBUG */
   file = fopen(buffer, "r");
-  if(file == NULL){
+
+  if (file == NULL) {
     perror("Error opening file\n");
     end_handler();
   }
@@ -127,24 +162,26 @@ int main(int argc, char const *argv[]) {
 
   #if DEBUG
   printf("Creating send thread\n");
-  #endif
-  if(pthread_create (&snd, NULL, send_thread, (void*)NULL)!=0){
+  #endif /* if DEBUG */
+
+  if (pthread_create(&snd, NULL, send_thread, (void *)NULL) != 0) {
     perror("Error creating send thread");
     exit(EXIT_FAILURE);
   }
   #if DEBUG
   printf("Creating ack thread\n");
-  #endif
-  if(pthread_create (&ack, NULL, ack_thread, (void*)NULL)!=0){
+  #endif /* if DEBUG */
+
+  if (pthread_create(&ack, NULL, ack_thread, (void *)NULL) != 0) {
     perror("Error creating ack thread");
     exit(EXIT_FAILURE);
   }
 
   #if DEBUG
   printf("Joining threads\n");
-  #endif
-  pthread_join (snd, NULL);
-  pthread_join (ack, NULL);
+  #endif /* if DEBUG */
+  pthread_join(snd, NULL);
+  pthread_join(ack, NULL);
 
   end_handler();
   return 0;
