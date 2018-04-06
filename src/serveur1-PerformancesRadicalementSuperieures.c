@@ -4,26 +4,19 @@ int   desc, data_desc;
 FILE *file;
 struct sockaddr_in adresse;
 pthread_mutex_t    start;
+pthread_mutex_t    mutex;
+char **segment_buffer;
 socklen_t addr_len;
 int data_desc_open = FALSE;
 int file_open      = FALSE;
 int desc_open      = FALSE;
-
-void send_disconnect_message() {
-  sendto(data_desc,
-         "FIN",
-         4 * sizeof(char),
-         0,
-         (struct sockaddr *)&adresse,
-         sizeof(adresse));
-}
 
 void end_handler() {
   #if DEBUG
   printf("Entering end handler\n");
   #endif /* if DEBUG */
 
-  send_disconnect_message();
+  send_disconnect_message(data_desc, adresse);
 
   if (data_desc_open) close(data_desc);
 
@@ -33,7 +26,11 @@ void end_handler() {
   exit(EXIT_SUCCESS);
 }
 
-void* send_thread(void *arg) {
+void* send_thread(void *args) {
+  ADDRESS *client_address    = args;
+  int data_desc              = client_address->desc;
+  struct sockaddr_in adresse = client_address->addr;
+
   #if DEBUG
   printf("Entering send thread\n");
   #endif /* if DEBUG */
@@ -51,6 +48,14 @@ void* send_thread(void *arg) {
     memset(buffer, '\0', RCVSIZE);
     sprintf(buffer, "%06d", sequence_nb);
     bytes_read = fread(buffer + HEADER_SIZE, 1, DATA_SIZE, file);
+
+    pthread_mutex_lock(&mutex);
+    segment_buffer[sequence_nb%BUFFER_SIZE] = malloc(bytes_read+HEADER_SIZE*sizeof(char));
+    memcpy(segment_buffer[sequence_nb%BUFFER_SIZE], buffer, bytes_read+HEADER_SIZE*sizeof(char));
+    #if DEBUG
+    printf("Buffer same as segment_buffer: %d\n", strcmp(buffer, segment_buffer[sequence_nb%BUFFER_SIZE]));
+    #endif
+    pthread_mutex_unlock(&mutex);
 
     if (bytes_read == -1) perror("Error reading file\n");
     else if (bytes_read > 0) {
@@ -74,7 +79,11 @@ void* send_thread(void *arg) {
   pthread_exit(NULL);
 }
 
-void* ack_thread(void *arg) {
+void* ack_thread(void *args) {
+  ADDRESS *client_address    = args;
+  int data_desc              = client_address->desc;
+  struct sockaddr_in adresse = client_address->addr;
+
   #if DEBUG
   printf("Entering ack thread\n");
   #endif /* if DEBUG */
@@ -116,6 +125,7 @@ int main(int argc, char const *argv[]) {
   struct sockaddr_in src_addr;
   socklen_t addr_len   = sizeof(src_addr);
   char buffer[RCVSIZE] = { 0 };
+
 
   int port;
 
@@ -159,12 +169,18 @@ int main(int argc, char const *argv[]) {
   pthread_t ack;
   pthread_mutex_init(&start, NULL);
   pthread_mutex_lock(&start);
+  pthread_mutex_init(&mutex, NULL);
+  segment_buffer = (char**)malloc(BUFFER_SIZE*sizeof(char *));
+
+  ADDRESS addr;
+  addr.addr = adresse;
+  addr.desc = data_desc;
 
   #if DEBUG
   printf("Creating send thread\n");
   #endif /* if DEBUG */
 
-  if (pthread_create(&snd, NULL, send_thread, (void *)NULL) != 0) {
+  if (pthread_create(&snd, NULL, send_thread, (void *)&addr) != 0) {
     perror("Error creating send thread");
     exit(EXIT_FAILURE);
   }
@@ -172,7 +188,7 @@ int main(int argc, char const *argv[]) {
   printf("Creating ack thread\n");
   #endif /* if DEBUG */
 
-  if (pthread_create(&ack, NULL, ack_thread, (void *)NULL) != 0) {
+  if (pthread_create(&ack, NULL, ack_thread, (void *)&addr) != 0) {
     perror("Error creating ack thread");
     exit(EXIT_FAILURE);
   }
