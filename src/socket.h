@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/signal.h>
+#include <sys/time.h>
 
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -28,6 +29,8 @@
 #define SYN_SIZE 4*sizeof(char)
 #define BUFFER_SIZE 20
 #define WINDOW 1
+#define G 0.125
+#define H 0.25
 
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 
@@ -38,7 +41,7 @@ typedef struct client_address{
 
 struct sockaddr_in init_addr(int port, int addr);
 
-void set_timeout(int desc, int tv_sec, int tv_usec);
+void set_timeout(int desc, long tv_sec, long tv_usec);
 
 int create_socket(int port);
 
@@ -49,5 +52,9 @@ int random_port();
 int my_accept(int desc, struct sockaddr_in* addr);
 
 void send_disconnect_message(int data_desc, struct sockaddr_in adresse);
+
+long timedifference_usec(struct timeval t0, struct timeval t1);
+
+void update_rto(long *rto, long *srtt, long *rtt, long *rttvar);
 
 #endif

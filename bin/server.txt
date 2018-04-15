@@ -1,0 +1,109 @@
+Creating socket on port 4242
+Binding socket on port 4242
+Socket created on port 4242
+Wainting for SYN on desc 3 
+SYN received on desc 3: SYN 
+SYN confirmé
+Generated random port 8953
+Creating socket on port 8953
+Binding socket on port 8953
+Socket created on port 8953
+Port : 8953
+SYN-ACK envoyé
+ACK reçu, connexion acceptée.
+Waiting for file name
+Waiting ACK 1
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000001
+Waiting ACK 2
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000002
+Waiting ACK 3
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000003
+Waiting ACK 4
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000004
+Waiting ACK 5
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000005
+Waiting ACK 6
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000006
+Waiting ACK 7
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000007
+Waiting ACK 8
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000008
+Waiting ACK 9
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000009
+Waiting ACK 10
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000010
+Waiting ACK 11
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000011
+Waiting ACK 12
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000012
+Waiting ACK 13
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000013
+Waiting ACK 14
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000014
+Waiting ACK 15
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000015
+Waiting ACK 16
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000016
+Waiting ACK 17
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000017
+Waiting ACK 18
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000018
+Waiting ACK 19
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000019
+Waiting ACK 20
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000020
+Waiting ACK 21
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000021
+Waiting ACK 22
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000022
+Waiting ACK 23
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000023
+Waiting ACK 24
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000024
+Waiting ACK 25
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000025
+Waiting ACK 26
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000026
+Waiting ACK 27
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000027
+Waiting ACK 28
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000028
+Waiting ACK 29
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000029
+Waiting ACK 30
+Send size: 1460, RCVSIZE: 1460
+Sent segment 000030
+Waiting ACK 31
+Send size: 118, RCVSIZE: 1460
+Sent segment 000031
+Joining threads
+Entering end handler

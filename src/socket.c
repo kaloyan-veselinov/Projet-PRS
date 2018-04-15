@@ -2,12 +2,12 @@
 
 int initialized = 0;
 
-void set_timeout(int desc, int tv_sec, int tv_usec)
-{
+void set_timeout(int desc, long tv_sec, long tv_usec) {
   struct timeval tv;
-  tv.tv_sec = tv_sec;
+
+  tv.tv_sec  = tv_sec;
   tv.tv_usec = tv_usec;
-  setsockopt(desc, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+  setsockopt(desc, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
 }
 
 void send_disconnect_message(int data_desc, struct sockaddr_in adresse) {
@@ -68,16 +68,17 @@ int my_bind(int socket, struct sockaddr *addr) {
   return EXIT_SUCCESS;
 }
 
-int random_value(int min, int max){
+int random_value(int min, int max) {
   if (!initialized) {
     srand(time(NULL));
     initialized = 1;
   }
-  return rand()%(max-min) + min;
+  return rand() % (max - min) + min;
 }
 
 int random_port() {
-  int port = random_value(1000,10000);
+  int port = random_value(1025, 9999);
+
   #if DEBUG
   printf("Generated random port %d\n", port);
   #endif /* if DEBUG */
@@ -140,4 +141,16 @@ int my_accept(int desc, struct sockaddr_in *addr) {
   printf("ACK reçu, connexion acceptée.\n");
 
   return data_desc;
+}
+
+long timedifference_usec(struct timeval t0, struct timeval t1) {
+  return (t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_usec - t0.tv_usec);
+}
+
+void update_rto(long *rto, long *srtt, long *rtt, long *rttvar) {
+  long delta = *rtt - *srtt;
+
+  *srtt   += G * delta;
+  *rttvar += H * (abs((int)delta) - *rttvar);
+  *rto     = *srtt + 4 * (*rttvar);
 }
