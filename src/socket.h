@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <math.h>
 #include <pthread.h>
+#include <errno.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -20,9 +21,9 @@
 #define TRUE 1
 #define FALSE 0
 
-#define RCVSIZE 1500
+#define RCVSIZE 1460
 #define HEADER_SIZE 6
-#define DATA_SIZE (RCVSIZE-HEADER_SIZE)
+#define DATA_SIZE (RCVSIZE-HEADER_SIZE*sizeof(char))
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)
 #define BUFFER_SIZE 20
@@ -36,6 +37,8 @@ typedef struct client_address{
 }ADDRESS;
 
 struct sockaddr_in init_addr(int port, int addr);
+
+void set_timeout(int desc, int tv_sec, int tv_usec);
 
 int create_socket(int port);
 

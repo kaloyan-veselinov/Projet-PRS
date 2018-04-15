@@ -2,6 +2,14 @@
 
 int initialized = 0;
 
+void set_timeout(int desc, int tv_sec, int tv_usec)
+{
+  struct timeval tv;
+  tv.tv_sec = tv_sec;
+  tv.tv_usec = tv_usec;
+  setsockopt(desc, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+}
+
 void send_disconnect_message(int data_desc, struct sockaddr_in adresse) {
   sendto(data_desc,
          "FIN",

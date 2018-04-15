@@ -1,16 +1,26 @@
+//TODO add current sending pointer
+//TODO add buffer for datagram sizes
+//TODO add file reading before wait
+//TODO retransmission and dropped packets
+//TODO RTT
+//TODO implement slow start -> until a datagram has been lost, window *2 each time; when a datagram is lost, divide window by 2, and then linear phase
+//TODO implement connect with UDP
+
 #include "serveur1-PerformancesRadicalementSuperieures.h"
 
 int   desc, data_desc;
 FILE *file;
 struct sockaddr_in adresse;
+
 pthread_mutex_t    ack_mutex;
 pthread_cond_t     ack_cond;
+int file_sent      = FALSE;
+int last_ack       = 0;
 
 socklen_t addr_len;
 int data_desc_open = FALSE;
 int file_open      = FALSE;
 int desc_open      = FALSE;
-int ack_received   = TRUE;
 
 void end_handler() {
   #if DEBUG
@@ -27,43 +37,39 @@ void end_handler() {
   exit(EXIT_SUCCESS);
 }
 
+void alrm_handler() {}
+
 void* send_thread(void *args) {
   ADDRESS *client_address    = args;
   int data_desc              = client_address->desc;
   struct sockaddr_in adresse = client_address->addr;
 
   char segment_buffer[BUFFER_SIZE][RCVSIZE];
-  int  bytes_read = 0;
+  int  bytes_read_buffer[BUFFER_SIZE];
   int  sequence_nb = 1;
   int  snd;
   int  i = 0;
-  int datagram_size;
+  int  datagram_size;
+  int  p_buff;
+  int  last_loaded_elem_into_buff;
 
   do {
     i = 0;
     do {
-      memset(segment_buffer[sequence_nb%BUFFER_SIZE], '\0', RCVSIZE);
-      sprintf(segment_buffer[sequence_nb%BUFFER_SIZE], "%06d", sequence_nb);
-      bytes_read = fread(segment_buffer[sequence_nb%BUFFER_SIZE] + HEADER_SIZE, 1, DATA_SIZE, file);
-      datagram_size = bytes_read + (HEADER_SIZE*sizeof(char));
+      p_buff = sequence_nb%BUFFER_SIZE;
+      memset(segment_buffer[p_buff], '\0', RCVSIZE);
+      sprintf(segment_buffer[p_buff], "%06d", sequence_nb);
+      bytes_read_buffer[p_buff] = fread(segment_buffer[p_buff] + HEADER_SIZE, 1, DATA_SIZE, file);
+      datagram_size = bytes_read_buffer[p_buff] + (HEADER_SIZE*sizeof(char));
 
       pthread_mutex_lock(&ack_mutex);
-      if(!ack_received) pthread_cond_wait(&ack_cond, &ack_mutex);
-      ack_received = FALSE;
+      if(last_ack != sequence_nb-1) pthread_cond_wait(&ack_cond, &ack_mutex);
+      file_sent = datagram_size < RCVSIZE;
       pthread_mutex_unlock(&ack_mutex);
-
-      //TODO add current sending pointer
-      //TODO add buffer for datagram sizes
-      //TODO add file reading before wait
-      //TODO retransmission
-      //TODO timer
-      //TODO add send-ack synchronization
-      //TODO implement slow start -> until a datagram has been lost, window *2 each time; when a datagram is lost, divide window by 2, and then linear phase
-
-      if (bytes_read == -1) perror("Error reading file\n");
-      else if (bytes_read > 0) {
+      if (bytes_read_buffer[p_buff] == -1) perror("Error reading file\n");
+      else if (bytes_read_buffer[p_buff] > 0) {
         snd = sendto(data_desc,
-                     segment_buffer[sequence_nb%BUFFER_SIZE],
+                     segment_buffer[p_buff],
                      datagram_size,
                      0,
                      (struct sockaddr *)&adresse,
@@ -79,10 +85,8 @@ void* send_thread(void *args) {
         sequence_nb++;
       }
       i++;
-    } while(i<WINDOW && bytes_read != 0);
-  } while (bytes_read != 0);
-  sleep(1);
-  end_handler();
+    } while(i<WINDOW && bytes_read_buffer[p_buff] != 0);
+  } while (bytes_read_buffer[p_buff] != 0);
   pthread_exit(NULL);
 }
 
@@ -93,12 +97,15 @@ void* ack_thread(void *args) {
   char buffer[ACK_SIZE + 1];
   struct sockaddr_in src_addr;
   int rcv;
+  int end;
+  int parsed_ack = 0;
+  set_timeout(data_desc, 1, 0);
 
   do {
     memset(buffer, '\0', ACK_SIZE + 1);
     #if DEBUG
-    printf("Waiting ACK\n");
-    #endif /* if DEBUG */
+    printf("Waiting ACK %d\n", parsed_ack+1);
+    #endif
     rcv = recvfrom(data_desc,
                    buffer,
                    ACK_SIZE,
@@ -106,20 +113,26 @@ void* ack_thread(void *args) {
                    (struct sockaddr *)&src_addr,
                    &addr_len);
 
+
     if (rcv < 0) {
-      perror("Error receiving ACK\n");
-      pthread_exit(NULL);
+      if(errno == EWOULDBLOCK) {
+        perror("Blocked");
+        //TODO handle resend value if packet dropped
+      }
+      else{
+        perror("Error receiving ACK\n");
+        pthread_exit(NULL);
+      }
     }
-    printf("%s\n", buffer);
+    else{
+      pthread_mutex_lock(&ack_mutex);
+      last_ack = parsed_ack;
+      end = file_sent;
+      pthread_cond_signal(&ack_cond);
+      pthread_mutex_unlock(&ack_mutex);
+    }
 
-    pthread_mutex_lock(&ack_mutex);
-    ack_received = TRUE;
-    pthread_cond_signal(&ack_cond);
-    pthread_mutex_unlock(&ack_mutex);
-  } while (strncmp(buffer, "FIN", strlen("FIN") + 1) != 0);
-
-  // TODO perte de packets
-
+  } while (!end);
   pthread_exit(NULL);
 }
 
@@ -129,7 +142,6 @@ int main(int argc, char const *argv[]) {
   struct sockaddr_in src_addr;
   socklen_t addr_len   = sizeof(src_addr);
   char buffer[RCVSIZE] = { 0 };
-
 
   int port;
 
@@ -141,9 +153,6 @@ int main(int argc, char const *argv[]) {
   memset(&src_addr, 0, addr_len);
   data_desc      = my_accept(desc, &src_addr);
   data_desc_open = TRUE;
-  #if DEBUG
-  printf("Data file descriptor: %d\n", data_desc);
-  #endif /* if DEBUG */
 
   #if DEBUG
   printf("Waiting for file name\n");
@@ -156,9 +165,6 @@ int main(int argc, char const *argv[]) {
   }
   adresse = src_addr;
 
-  #if DEBUG
-  printf("Opening file\n");
-  #endif /* if DEBUG */
   file = fopen(buffer, "r");
 
   if (file == NULL) {
@@ -178,18 +184,10 @@ int main(int argc, char const *argv[]) {
   addr.addr = adresse;
   addr.desc = data_desc;
 
-  #if DEBUG
-  printf("Creating send thread\n");
-  #endif /* if DEBUG */
-
   if (pthread_create(&snd, NULL, send_thread, (void *)&addr) != 0) {
     perror("Error creating send thread");
     exit(EXIT_FAILURE);
   }
-  #if DEBUG
-  printf("Creating ack thread\n");
-  #endif /* if DEBUG */
-
   if (pthread_create(&ack, NULL, ack_thread, (void *)&addr) != 0) {
     perror("Error creating ack thread");
     exit(EXIT_FAILURE);
