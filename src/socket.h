@@ -25,7 +25,7 @@
 #define DATA_SIZE (RCVSIZE-HEADER_SIZE)
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)
-#define BUFFER_SIZE 1200
+#define BUFFER_SIZE 20
 #define WINDOW 1
 
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))

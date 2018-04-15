@@ -60,12 +60,16 @@ int my_bind(int socket, struct sockaddr *addr) {
   return EXIT_SUCCESS;
 }
 
-int random_port() {
+int random_value(int min, int max){
   if (!initialized) {
     srand(time(NULL));
     initialized = 1;
   }
-  int port = (1000 + rand()) % 10000;
+  return rand()%(max-min) + min;
+}
+
+int random_port() {
+  int port = random_value(1000,10000);
   #if DEBUG
   printf("Generated random port %d\n", port);
   #endif /* if DEBUG */
@@ -114,9 +118,6 @@ int my_accept(int desc, struct sockaddr_in *addr) {
   #endif /* if DEBUG */
 
   // TODO add timer
-  #if DEBUG
-  printf("Waiting for ACK from client\n");
-  #endif /* if DEBUG */
 
   if (recvfrom(desc, msg, RCVSIZE, 0, (struct sockaddr *)&addr,
                &addr_len) == -1) {

@@ -3,13 +3,14 @@
 int   desc, data_desc;
 FILE *file;
 struct sockaddr_in adresse;
-pthread_mutex_t    start;
-pthread_mutex_t    mutex;
-char **segment_buffer;
+pthread_mutex_t    ack_mutex;
+pthread_cond_t     ack_cond;
+
 socklen_t addr_len;
 int data_desc_open = FALSE;
 int file_open      = FALSE;
 int desc_open      = FALSE;
+int ack_received   = TRUE;
 
 void end_handler() {
   #if DEBUG
@@ -31,36 +32,38 @@ void* send_thread(void *args) {
   int data_desc              = client_address->desc;
   struct sockaddr_in adresse = client_address->addr;
 
-  #if DEBUG
-  printf("Entering send thread\n");
-  #endif /* if DEBUG */
+  char segment_buffer[BUFFER_SIZE][RCVSIZE];
   int  bytes_read = 0;
   int  sequence_nb = 1;
   int  snd;
   int  i = 0;
   int datagram_size;
-  char buffer[RCVSIZE + 1];
-
-  if (pthread_mutex_unlock(&start) != 0) perror("Err unlocking start\n");
-  #if DEBUG
-  printf("Starting transmission\n");
-  #endif /* if DEBUG */
 
   do {
     i = 0;
     do {
-      memset(buffer, '\0', RCVSIZE);
-      sprintf(buffer, "%06d", sequence_nb);
-      bytes_read = fread(buffer + HEADER_SIZE, 1, DATA_SIZE, file);
+      memset(segment_buffer[sequence_nb%BUFFER_SIZE], '\0', RCVSIZE);
+      sprintf(segment_buffer[sequence_nb%BUFFER_SIZE], "%06d", sequence_nb);
+      bytes_read = fread(segment_buffer[sequence_nb%BUFFER_SIZE] + HEADER_SIZE, 1, DATA_SIZE, file);
       datagram_size = bytes_read + (HEADER_SIZE*sizeof(char));
 
-      segment_buffer[sequence_nb%BUFFER_SIZE] = malloc(datagram_size);
-      memcpy(segment_buffer[sequence_nb%BUFFER_SIZE], buffer, datagram_size);
+      pthread_mutex_lock(&ack_mutex);
+      if(!ack_received) pthread_cond_wait(&ack_cond, &ack_mutex);
+      ack_received = FALSE;
+      pthread_mutex_unlock(&ack_mutex);
+
+      //TODO add current sending pointer
+      //TODO add buffer for datagram sizes
+      //TODO add file reading before wait
+      //TODO retransmission
+      //TODO timer
+      //TODO add send-ack synchronization
+      //TODO implement slow start -> until a datagram has been lost, window *2 each time; when a datagram is lost, divide window by 2, and then linear phase
 
       if (bytes_read == -1) perror("Error reading file\n");
       else if (bytes_read > 0) {
         snd = sendto(data_desc,
-                     buffer,
+                     segment_buffer[sequence_nb%BUFFER_SIZE],
                      datagram_size,
                      0,
                      (struct sockaddr *)&adresse,
@@ -77,7 +80,6 @@ void* send_thread(void *args) {
       }
       i++;
     } while(i<WINDOW && bytes_read != 0);
-    sleep(1);
   } while (bytes_read != 0);
   sleep(1);
   end_handler();
@@ -87,15 +89,7 @@ void* send_thread(void *args) {
 void* ack_thread(void *args) {
   ADDRESS *client_address    = args;
   int data_desc              = client_address->desc;
-  struct sockaddr_in adresse = client_address->addr;
 
-  #if DEBUG
-  printf("Entering ack thread\n");
-  #endif /* if DEBUG */
-  pthread_mutex_lock(&start);
-  #if DEBUG
-  printf("ACK thread unlocked\n");
-  #endif /* if DEBUG */
   char buffer[ACK_SIZE + 1];
   struct sockaddr_in src_addr;
   int rcv;
@@ -117,6 +111,11 @@ void* ack_thread(void *args) {
       pthread_exit(NULL);
     }
     printf("%s\n", buffer);
+
+    pthread_mutex_lock(&ack_mutex);
+    ack_received = TRUE;
+    pthread_cond_signal(&ack_cond);
+    pthread_mutex_unlock(&ack_mutex);
   } while (strncmp(buffer, "FIN", strlen("FIN") + 1) != 0);
 
   // TODO perte de packets
@@ -172,10 +171,8 @@ int main(int argc, char const *argv[]) {
 
   pthread_t snd;
   pthread_t ack;
-  pthread_mutex_init(&start, NULL);
-  pthread_mutex_lock(&start);
-  pthread_mutex_init(&mutex, NULL);
-  segment_buffer = (char**)malloc(BUFFER_SIZE*sizeof(char *));
+  pthread_mutex_init(&ack_mutex, NULL);
+  pthread_cond_init(&ack_cond, NULL);
 
   ADDRESS addr;
   addr.addr = adresse;
@@ -198,11 +195,11 @@ int main(int argc, char const *argv[]) {
     exit(EXIT_FAILURE);
   }
 
+  pthread_join(snd, NULL);
+  pthread_join(ack, NULL);
   #if DEBUG
   printf("Joining threads\n");
   #endif /* if DEBUG */
-  pthread_join(snd, NULL);
-  pthread_join(ack, NULL);
 
   end_handler();
   return 0;
