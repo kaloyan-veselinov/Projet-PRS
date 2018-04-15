@@ -20,12 +20,13 @@
 #define TRUE 1
 #define FALSE 0
 
-#define RCVSIZE 1024
-#define HEADER_SIZE 7
+#define RCVSIZE 1500
+#define HEADER_SIZE 6
 #define DATA_SIZE (RCVSIZE-HEADER_SIZE)
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)
 #define BUFFER_SIZE 1200
+#define WINDOW 1
 
 #define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
 

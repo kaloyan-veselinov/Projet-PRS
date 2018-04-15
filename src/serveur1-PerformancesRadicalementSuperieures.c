@@ -34,9 +34,11 @@ void* send_thread(void *args) {
   #if DEBUG
   printf("Entering send thread\n");
   #endif /* if DEBUG */
-  int  bytes_read;
+  int  bytes_read = 0;
   int  sequence_nb = 1;
   int  snd;
+  int  i = 0;
+  int datagram_size;
   char buffer[RCVSIZE + 1];
 
   if (pthread_mutex_unlock(&start) != 0) perror("Err unlocking start\n");
@@ -45,37 +47,40 @@ void* send_thread(void *args) {
   #endif /* if DEBUG */
 
   do {
-    memset(buffer, '\0', RCVSIZE);
-    sprintf(buffer, "%06d", sequence_nb);
-    bytes_read = fread(buffer + HEADER_SIZE, 1, DATA_SIZE, file);
+    i = 0;
+    do {
+      memset(buffer, '\0', RCVSIZE);
+      sprintf(buffer, "%06d", sequence_nb);
+      bytes_read = fread(buffer + HEADER_SIZE, 1, DATA_SIZE, file);
+      datagram_size = bytes_read + (HEADER_SIZE*sizeof(char));
 
-    pthread_mutex_lock(&mutex);
-    segment_buffer[sequence_nb%BUFFER_SIZE] = malloc(bytes_read+HEADER_SIZE*sizeof(char));
-    memcpy(segment_buffer[sequence_nb%BUFFER_SIZE], buffer, bytes_read+HEADER_SIZE*sizeof(char));
-    #if DEBUG
-    printf("Buffer same as segment_buffer: %d\n", strcmp(buffer, segment_buffer[sequence_nb%BUFFER_SIZE]));
-    #endif
-    pthread_mutex_unlock(&mutex);
+      segment_buffer[sequence_nb%BUFFER_SIZE] = malloc(datagram_size);
+      memcpy(segment_buffer[sequence_nb%BUFFER_SIZE], buffer, datagram_size);
 
-    if (bytes_read == -1) perror("Error reading file\n");
-    else if (bytes_read > 0) {
-      snd = sendto(data_desc,
-                   buffer,
-                   RCVSIZE,
-                   0,
-                   (struct sockaddr *)&adresse,
-                   sizeof(adresse));
-
-      if (snd < 0) {
-        perror("Error sending segment\n");
-        pthread_exit(NULL);
+      if (bytes_read == -1) perror("Error reading file\n");
+      else if (bytes_read > 0) {
+        snd = sendto(data_desc,
+                     buffer,
+                     datagram_size,
+                     0,
+                     (struct sockaddr *)&adresse,
+                     sizeof(adresse));
+        printf("Send size: %d, RCVSIZE: %d\n", snd, RCVSIZE);
+        if (snd < 0) {
+          perror("Error sending segment\n");
+          pthread_exit(NULL);
+        }
+        #if DEBUG
+        printf("Sent segment %06d\n", sequence_nb);
+        #endif /* if DEBUG */
+        sequence_nb++;
       }
-      #if DEBUG
-      printf("Sent segment %06d\n", sequence_nb);
-      #endif /* if DEBUG */
-      sequence_nb++;
-    }
+      i++;
+    } while(i<WINDOW && bytes_read != 0);
+    sleep(1);
   } while (bytes_read != 0);
+  sleep(1);
+  end_handler();
   pthread_exit(NULL);
 }
 
@@ -112,7 +117,7 @@ void* ack_thread(void *args) {
       pthread_exit(NULL);
     }
     printf("%s\n", buffer);
-  } while (strncmp(buffer, "END", strlen("END") + 1) != 0);
+  } while (strncmp(buffer, "FIN", strlen("FIN") + 1) != 0);
 
   // TODO perte de packets
 
