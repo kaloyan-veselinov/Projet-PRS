@@ -1,11 +1,4 @@
 // TODO add current sending pointer
-
-// TODO add buffer for datagram sizes
-// TODO add file reading before wait
-// TODO retransmission and dropped packets
-// TODO RTT
-// TODO implement slow start -> until a datagram has been lost, window *2 each
-// time; when a datagram is lost, divide window by 2, and then linear phase
 // TODO implement connect with UDP
 
 #include "serveur1-PerformancesRadicalementSuperieures.h"
@@ -46,6 +39,7 @@ void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len
   char ack_buffer[ACK_SIZE];
   int  bytes_read_buffer[BUFFER_SIZE];
   int  sequence_nb = 1;
+  int  window = 1;
 
   int  snd;
   int  rcv;
@@ -100,8 +94,8 @@ void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len
         i++;
       }
       end = bytes_read_buffer[p_buff] == 0;
-      printf("End: %d, bytes_read: %d", end, bytes_read_buffer[p_buff]);
-    } while (i < WINDOW && !end);
+      //printf("End: %d, bytes_read: %d", end, bytes_read_buffer[p_buff]);
+    } while (i < window && !end);
 
     // acknoledgment
     for(j=0; j<i; j++){
@@ -121,6 +115,7 @@ void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len
         if (errno == EWOULDBLOCK) {
           perror("Blocked");
           timeout_ack = TRUE;
+          window /= 2.0;
           end = FALSE;
           break;
         }
@@ -128,6 +123,7 @@ void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len
       }
       else {
         last_ack = atoi(ack_buffer + 3);
+        window++;
         gettimeofday(&ack_time, 0);
         rtt = timedifference_usec(snd_time[last_ack%BUFFER_SIZE], ack_time);
         update_rto(&rto, &srtt, &rtt, &rttvar);

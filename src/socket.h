@@ -28,7 +28,7 @@
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)
 #define BUFFER_SIZE 20
-#define WINDOW 1
+#define WINDOW 4
 #define G 0.125
 #define H 0.25
 
