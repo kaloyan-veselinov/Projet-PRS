@@ -51,7 +51,7 @@ int random_port();
 
 int my_accept(int desc, struct sockaddr_in* addr);
 
-void send_disconnect_message(int data_desc, struct sockaddr_in adresse);
+void send_disconnect_message(int data_desc);
 
 long timedifference_usec(struct timeval t0, struct timeval t1);
 

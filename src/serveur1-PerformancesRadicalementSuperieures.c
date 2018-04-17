@@ -1,11 +1,11 @@
 // TODO add current sending pointer
+
 // TODO implement connect with UDP
 
 #include "serveur1-PerformancesRadicalementSuperieures.h"
 
 int   desc, data_desc;
 FILE *file;
-struct sockaddr_in adresse;
 
 int data_desc_open = FALSE;
 int file_open      = FALSE;
@@ -16,7 +16,7 @@ void end_handler() {
   printf("Entering end handler\n");
   #endif /* if DEBUG */
 
-  send_disconnect_message(data_desc, adresse);
+  send_disconnect_message(data_desc);
 
   if (data_desc_open) close(data_desc);
 
@@ -26,46 +26,44 @@ void end_handler() {
   exit(EXIT_SUCCESS);
 }
 
-void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len) {
-  int  end = FALSE;
-  int  last_ack  = 0;
+void handle_client(int data_desc) {
+  int end         = FALSE;
+  int last_ack    = 0;
   int timeout_ack = FALSE;
   struct timeval snd_time[BUFFER_SIZE];
   struct timeval ack_time;
-
-  struct sockaddr_in src_addr;
 
   char segment_buffer[BUFFER_SIZE][RCVSIZE];
   char ack_buffer[ACK_SIZE];
   int  bytes_read_buffer[BUFFER_SIZE];
   int  sequence_nb = 1;
-  int  window = 1;
+  int  window      = 1;
 
-  int  snd;
-  int  rcv;
+  int snd;
+  int rcv;
 
-  int  i = 0;
-  int  j;
+  int i = 0;
+  int j;
 
-  int  datagram_size;
-  int  p_buff;
+  int datagram_size;
+  int p_buff;
 
   long rtt;
-  long srtt = 100000;
-  long rto = 100000;
+  long srtt   = 100000;
+  long rto    = 100000;
   long rttvar = 0;
 
   do {
-
     // transmission
     i = 0;
+
     do {
       if (timeout_ack) {
         sequence_nb = last_ack + 1;
-        p_buff = sequence_nb % BUFFER_SIZE;
+        p_buff      = sequence_nb % BUFFER_SIZE;
         timeout_ack = FALSE;
       }
-      else{
+      else {
         p_buff = sequence_nb % BUFFER_SIZE;
         memset(segment_buffer[p_buff], '\0', RCVSIZE);
         sprintf(segment_buffer[p_buff], "%06d", sequence_nb);
@@ -79,12 +77,10 @@ void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len
 
       if (bytes_read_buffer[p_buff] == -1) perror("Error reading file\n");
       else if (bytes_read_buffer[p_buff] > 0) {
-        snd = sendto(data_desc,
-                     segment_buffer[p_buff],
-                     datagram_size,
-                     0,
-                     (struct sockaddr *)&adresse,
-                     sizeof(adresse));
+        snd = send(data_desc,
+                   segment_buffer[p_buff],
+                   datagram_size,
+                   0);
 
         gettimeofday(snd_time + p_buff, 0);
 
@@ -94,29 +90,28 @@ void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len
         i++;
       }
       end = bytes_read_buffer[p_buff] == 0;
-      //printf("End: %d, bytes_read: %d", end, bytes_read_buffer[p_buff]);
+
+      // printf("End: %d, bytes_read: %d", end, bytes_read_buffer[p_buff]);
     } while (i < window && !end);
 
     // acknoledgment
-    for(j=0; j<i; j++){
+    for (j = 0; j < i; j++) {
       set_timeout(data_desc, 0, rto);
       memset(ack_buffer, '\0', ACK_SIZE + 1);
       #if DEBUG
       printf("Waiting ACK %d\n", last_ack + 1);
       #endif /* if DEBUG */
-      rcv = recvfrom(data_desc,
-                     ack_buffer,
-                     ACK_SIZE,
-                     0,
-                     (struct sockaddr *)&src_addr,
-                     &addr_len);
+      rcv = recv(data_desc,
+                 ack_buffer,
+                 ACK_SIZE,
+                 0);
 
       if (rcv < 0) {
         if (errno == EWOULDBLOCK) {
           perror("Blocked");
           timeout_ack = TRUE;
-          window /= 2.0;
-          end = FALSE;
+          window     /= 2.0;
+          end         = FALSE;
           break;
         }
         else perror("Error receiving ACK\n");
@@ -125,9 +120,9 @@ void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len
         last_ack = atoi(ack_buffer + 3);
         window++;
         gettimeofday(&ack_time, 0);
-        rtt = timedifference_usec(snd_time[last_ack%BUFFER_SIZE], ack_time);
+        rtt = timedifference_usec(snd_time[last_ack % BUFFER_SIZE], ack_time);
         update_rto(&rto, &srtt, &rtt, &rttvar);
-        printf("RTO %ld ", rto);
+        printf("RTO %ld ",          rto);
         printf("Received ACK %d\n", last_ack);
       }
     }
@@ -156,12 +151,10 @@ int main(int argc, char const *argv[]) {
   printf("Waiting for file name\n");
   #endif /* if DEBUG */
 
-  if (recvfrom(data_desc, buffer, sizeof(buffer), 0, (struct sockaddr *)&src_addr,
-               &addr_len) == -1) {
+  if (recv(data_desc, buffer, sizeof(buffer), 0) == -1) {
     perror("Error receiving file name\n");
     end_handler();
   }
-  adresse = src_addr;
 
   file = fopen(buffer, "r");
 
@@ -171,9 +164,7 @@ int main(int argc, char const *argv[]) {
   }
   file_open = TRUE;
 
-  addr_len = sizeof(adresse);
-
-  handle_client(data_desc, adresse, addr_len);
+  handle_client(data_desc);
 
   end_handler();
   return 0;
