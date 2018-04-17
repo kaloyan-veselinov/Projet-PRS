@@ -10,13 +10,11 @@ void set_timeout(int desc, long tv_sec, long tv_usec) {
   setsockopt(desc, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
 }
 
-void send_disconnect_message(int data_desc, struct sockaddr_in adresse) {
-  sendto(data_desc,
+void send_disconnect_message(int data_desc) {
+  send(data_desc,
          "FIN",
          4 * sizeof(char),
-         0,
-         (struct sockaddr *)&adresse,
-         sizeof(adresse));
+         0);
 }
 
 struct sockaddr_in init_addr(int port, int addr) {
@@ -31,9 +29,9 @@ struct sockaddr_in init_addr(int port, int addr) {
 }
 
 int create_socket(int port) {
-    #if DEBUG
+  #if DEBUG
   printf("Creating socket on port %d\n", port);
-    #endif /* if DEBUG */
+  #endif /* if DEBUG */
   struct sockaddr_in adresse = init_addr(port, INADDR_ANY);
   int desc                   = socket(AF_INET, SOCK_DGRAM, 0);
   int valid                  = 1;
@@ -48,9 +46,9 @@ int create_socket(int port) {
 
   my_bind(desc, (struct sockaddr *)&adresse);
 
-    #if DEBUG
+  #if DEBUG
   printf("Socket created on port %d\n", port);
-    #endif /* if DEBUG */
+  #endif /* if DEBUG */
 
   return desc;
 }
@@ -139,6 +137,8 @@ int my_accept(int desc, struct sockaddr_in *addr) {
     EXIT_FAILURE;
   }
   printf("ACK reçu, connexion acceptée.\n");
+
+  connect(data_desc, (struct sockaddr *)&addr, addr_len);
 
   return data_desc;
 }
