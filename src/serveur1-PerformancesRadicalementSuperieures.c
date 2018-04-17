@@ -14,14 +14,6 @@ int   desc, data_desc;
 FILE *file;
 struct sockaddr_in adresse;
 
-pthread_mutex_t ack_mutex;
-pthread_cond_t  ack_cond;
-int  file_sent = FALSE;
-int  last_ack  = 0;
-int timeout_ack = FALSE;
-struct timeval snd_time[BUFFER_SIZE];
-
-socklen_t addr_len;
 int data_desc_open = FALSE;
 int file_open      = FALSE;
 int desc_open      = FALSE;
@@ -41,29 +33,46 @@ void end_handler() {
   exit(EXIT_SUCCESS);
 }
 
-void  alrm_handler() {}
+void handle_client(int data_desc, struct sockaddr_in adresse, socklen_t addr_len) {
+  int  end = FALSE;
+  int  last_ack  = 0;
+  int timeout_ack = FALSE;
+  struct timeval snd_time[BUFFER_SIZE];
+  struct timeval ack_time;
 
-void* send_thread(void *args) {
-  ADDRESS *client_address    = args;
-  int data_desc              = client_address->desc;
-  struct sockaddr_in adresse = client_address->addr;
+  struct sockaddr_in src_addr;
 
   char segment_buffer[BUFFER_SIZE][RCVSIZE];
+  char ack_buffer[ACK_SIZE];
   int  bytes_read_buffer[BUFFER_SIZE];
   int  sequence_nb = 1;
+
   int  snd;
+  int  rcv;
+
   int  i = 0;
+  int  j;
+
   int  datagram_size;
   int  p_buff;
-  int  retransmission = FALSE;
+
+  long rtt;
+  long srtt = 100000;
+  long rto = 100000;
+  long rttvar = 0;
 
   do {
+
+    // transmission
     i = 0;
-
     do {
-      p_buff = sequence_nb % BUFFER_SIZE;
-
-      if (!retransmission) {
+      if (timeout_ack) {
+        sequence_nb = last_ack + 1;
+        p_buff = sequence_nb % BUFFER_SIZE;
+        timeout_ack = FALSE;
+      }
+      else{
+        p_buff = sequence_nb % BUFFER_SIZE;
         memset(segment_buffer[p_buff], '\0', RCVSIZE);
         sprintf(segment_buffer[p_buff], "%06d", sequence_nb);
         bytes_read_buffer[p_buff] = fread(segment_buffer[p_buff] + HEADER_SIZE,
@@ -71,19 +80,6 @@ void* send_thread(void *args) {
                                           DATA_SIZE,
                                           file);
       }
-
-      pthread_mutex_lock(&ack_mutex);
-
-      if (last_ack != (sequence_nb - 1)) pthread_cond_wait(&ack_cond, &ack_mutex);
-      retransmission = timeout_ack;
-      timeout_ack = FALSE;
-      if (retransmission) {
-        sequence_nb = last_ack + 1;
-        p_buff      = sequence_nb % BUFFER_SIZE;
-      }
-      file_sent = bytes_read_buffer[p_buff] < DATA_SIZE;
-      pthread_mutex_unlock(&ack_mutex);
-
 
       datagram_size = bytes_read_buffer[p_buff] + (HEADER_SIZE * sizeof(char));
 
@@ -96,86 +92,50 @@ void* send_thread(void *args) {
                      (struct sockaddr *)&adresse,
                      sizeof(adresse));
 
-        pthread_mutex_lock(&ack_mutex);
         gettimeofday(snd_time + p_buff, 0);
-        pthread_mutex_unlock(&ack_mutex);
 
-        if (snd < 0) {
-          perror("Error sending segment\n");
-          pthread_exit(NULL);
-        }
-        #if DEBUG
+        if (snd < 0) perror("Error sending segment\n");
         printf("Sent segment %06d\n", sequence_nb);
-        #endif /* if DEBUG */
         sequence_nb++;
+        i++;
       }
-      i++;
-    } while (i < WINDOW && bytes_read_buffer[p_buff] != 0);
-  } while (bytes_read_buffer[p_buff] != 0);
-  pthread_exit(NULL);
-}
+      end = bytes_read_buffer[p_buff] == 0;
+      printf("End: %d, bytes_read: %d", end, bytes_read_buffer[p_buff]);
+    } while (i < WINDOW && !end);
 
-void* ack_thread(void *args) {
-  ADDRESS *client_address = args;
-  int data_desc           = client_address->desc;
+    // acknoledgment
+    for(j=0; j<i; j++){
+      set_timeout(data_desc, 0, rto);
+      memset(ack_buffer, '\0', ACK_SIZE + 1);
+      #if DEBUG
+      printf("Waiting ACK %d\n", last_ack + 1);
+      #endif /* if DEBUG */
+      rcv = recvfrom(data_desc,
+                     ack_buffer,
+                     ACK_SIZE,
+                     0,
+                     (struct sockaddr *)&src_addr,
+                     &addr_len);
 
-  char buffer[ACK_SIZE + 1];
-  struct sockaddr_in src_addr;
-  int rcv;
-  int end;
-  int parsed_ack = 0;
-  long rto;
-  long srtt = 500000;
-  long rtt;
-  long rttvar = 0;
-  struct timeval ack_time;
-
-  do {
-    memset(buffer, '\0', ACK_SIZE + 1);
-    #if DEBUG
-    printf("Waiting ACK %d\n", parsed_ack + 1);
-    #endif /* if DEBUG */
-    rcv = recvfrom(data_desc,
-                   buffer,
-                   ACK_SIZE,
-                   0,
-                   (struct sockaddr *)&src_addr,
-                   &addr_len);
-
-
-    if (rcv < 0) {
-      if (errno == EWOULDBLOCK) {
-        perror("Blocked");
-        pthread_mutex_lock(&ack_mutex);
-        timeout_ack = TRUE;
-        pthread_cond_signal(&ack_cond);
-        pthread_mutex_unlock(&ack_mutex);
+      if (rcv < 0) {
+        if (errno == EWOULDBLOCK) {
+          perror("Blocked");
+          timeout_ack = TRUE;
+          end = FALSE;
+          break;
+        }
+        else perror("Error receiving ACK\n");
       }
       else {
-        perror("Error receiving ACK\n");
-        pthread_exit(NULL);
+        last_ack = atoi(ack_buffer + 3);
+        gettimeofday(&ack_time, 0);
+        rtt = timedifference_usec(snd_time[last_ack%BUFFER_SIZE], ack_time);
+        update_rto(&rto, &srtt, &rtt, &rttvar);
+        printf("RTO %ld ", rto);
+        printf("Received ACK %d\n", last_ack);
       }
     }
-    else {
-      parsed_ack = atoi(buffer + 3);
-      gettimeofday(&ack_time, 0);
-      pthread_mutex_lock(&ack_mutex);
-      rtt = timedifference_usec(snd_time[parsed_ack%BUFFER_SIZE], ack_time);
-      last_ack = parsed_ack;
-      end      = file_sent;
-      pthread_cond_signal(&ack_cond);
-      pthread_mutex_unlock(&ack_mutex);
-
-      update_rto(&rto, &srtt, &rtt, &rttvar);
-      printf("RTO %ld ", rto);
-      set_timeout(data_desc, 0, rto);
-
-      #if DEBUG
-      printf("Received ACK %d\n", parsed_ack);
-      #endif /* if DEBUG */
-    }
   } while (!end);
-  pthread_exit(NULL);
 }
 
 int main(int argc, char const *argv[]) {
@@ -217,30 +177,7 @@ int main(int argc, char const *argv[]) {
 
   addr_len = sizeof(adresse);
 
-  pthread_t snd;
-  pthread_t ack;
-  pthread_mutex_init(&ack_mutex, NULL);
-  pthread_cond_init(&ack_cond, NULL);
-
-  ADDRESS addr;
-  addr.addr = adresse;
-  addr.desc = data_desc;
-
-  if (pthread_create(&snd, NULL, send_thread, (void *)&addr) != 0) {
-    perror("Error creating send thread");
-    exit(EXIT_FAILURE);
-  }
-
-  if (pthread_create(&ack, NULL, ack_thread, (void *)&addr) != 0) {
-    perror("Error creating ack thread");
-    exit(EXIT_FAILURE);
-  }
-
-  pthread_join(snd, NULL);
-  pthread_join(ack, NULL);
-  #if DEBUG
-  printf("Joining threads\n");
-  #endif /* if DEBUG */
+  handle_client(data_desc, adresse, addr_len);
 
   end_handler();
   return 0;
