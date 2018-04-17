@@ -11,7 +11,7 @@ all : ../bin/serveur1-$(NOMGRP) ../bin/serveur2-$(NOMGRP) ../bin/serveur3-$(NOMG
 	gcc $(CFLAGS) $^ -o $@ -lm
 
 ../bin/serveur3-$(NOMGRP): serveur3-$(NOMGRP).o socket.o
-	gcc $(CFLAGS) $^ -o $@ -lm -lpthread	
+	gcc $(CFLAGS) $^ -o $@ -lm -lpthread
 
 %.o: %.c %.h
 	gcc $(CFLAGS) -c $< -o $@
@@ -20,7 +20,7 @@ clean:
 	rm -rf ./*.o
 
 mrproper: clean
-	rm -rf ../bin/serveur1-$(NOMGRP) ../bin/serveur2-$(NOMGRP) ../bin/serveur3-$(NOMGRP)
+	rm -rf ../bin/serveur1-$(NOMGRP) ../bin/serveur2-$(NOMGRP) ../bin/serveur3-$(NOMGRP) 
 
 tar: clean
 	cd .. && tar -czvf $(NOMGRP).tar.gz src/ bin/

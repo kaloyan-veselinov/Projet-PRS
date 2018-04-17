@@ -1,6 +1,6 @@
-// TODO add current sending pointer
+// TODO rto initialization
 
-// TODO implement connect with UDP
+// TODO retransmission doesn't work correctly
 
 #include "serveur1-PerformancesRadicalementSuperieures.h"
 
@@ -12,9 +12,10 @@ int file_open      = FALSE;
 int desc_open      = FALSE;
 
 void end_handler() {
-  #if DEBUG
+#if DEBUG
+
   printf("Entering end handler\n");
-  #endif /* if DEBUG */
+#endif /* if DEBUG */
 
   send_disconnect_message(data_desc);
 
@@ -84,7 +85,7 @@ int send_sgmts(FILE          *file,
       gettimeofday(snd_time + p_buff, 0);
 
       if (snd < 0) perror("Error sending segment\n");
-      else{
+      else {
         printf("Sent segment %06d\n", sequence_nb);
         sequence_nb++;
         nb_sent++;
@@ -94,89 +95,131 @@ int send_sgmts(FILE          *file,
   return nb_sent;
 }
 
-void handle_client(int data_desc) {
-  int parsed_ack;
-
-  struct timeval snd_time[BUFFER_SIZE];
+int rcv_ack(FILE          *file,
+            int            data_desc,
+            char           segments[BUFFER_SIZE][RCVSIZE],
+            int            bytes_read[BUFFER_SIZE],
+            struct timeval snd_time[BUFFER_SIZE],
+            int            sgmt_acknoledged_buff[BUFFER_SIZE],
+            int           *last_loaded_sgmt,
+            int            sequence_nb,
+            int            nb_ack_to_rcv,
+            long          *srtt,
+            long          *rttvar) {
+  char ack_buffer[ACK_SIZE + 1];
+  int  rcv, snd, parsed_ack;
+  long rtt, rto;
+  int  nb_sgmt_sent = nb_ack_to_rcv;
+  int  sgmt_to_retransmit;
   struct timeval ack_time;
+  int retransmission = FALSE;
 
+  reinit_sgmt_ack_buff(sgmt_acknoledged_buff, sequence_nb, nb_ack_to_rcv);
+
+  while (nb_ack_to_rcv > 0) {
+    memset(ack_buffer, '\0', ACK_SIZE + 1);
+    rcv = recv(data_desc,
+               ack_buffer,
+               ACK_SIZE,
+               0);
+
+    if (rcv < 0) {
+      if (errno == EWOULDBLOCK) {
+        sgmt_to_retransmit = first_non_ack(sgmt_acknoledged_buff,
+                                           sequence_nb,
+                                           nb_sgmt_sent);
+        fprintf(stderr, "Timeout, resending %6d\n", sgmt_to_retransmit);
+        snd = send_sgmts(file,
+                         data_desc,
+                         segments,
+                         bytes_read,
+                         snd_time,
+                         last_loaded_sgmt,
+                         sgmt_to_retransmit,
+                         1);
+
+        if (snd == 1) {
+          nb_ack_to_rcv--;
+          sgmt_acknoledged_buff[sequence_nb] = TRUE;
+        }
+        retransmission = TRUE;
+      } else perror("Error receiving ACK\n");
+    } else {
+      parsed_ack = atoi(ack_buffer + 3);
+
+      if (sgmt_acknoledged_buff[parsed_ack % BUFFER_SIZE]) {
+        fprintf(stderr, "Selective ACK on segment %d\n", parsed_ack);
+        snd = send_sgmts(file,
+                         data_desc,
+                         segments,
+                         bytes_read,
+                         snd_time,
+                         last_loaded_sgmt,
+                         parsed_ack + 1,
+                         1);
+
+        if (snd == 1) {
+          sgmt_acknoledged_buff[parsed_ack+1] = TRUE;
+          sgmt_acknoledged_buff[parsed_ack] = FALSE;
+          nb_ack_to_rcv--;
+        }
+        retransmission = TRUE;
+      } else {
+        gettimeofday(&ack_time, 0);
+        rtt = timedifference_usec(snd_time[parsed_ack % BUFFER_SIZE], ack_time);
+        update_rto(&rto, srtt, &rtt, rttvar);
+        set_timeout(data_desc, 0, rto);
+        printf("Received ACK %d\n", parsed_ack);
+        sgmt_acknoledged_buff[parsed_ack % BUFFER_SIZE] = TRUE;
+        nb_ack_to_rcv--;
+      }
+    }
+  }
+  return retransmission;
+}
+
+void handle_client(int data_desc) {
+  struct timeval snd_time[BUFFER_SIZE];
   char segments[BUFFER_SIZE][RCVSIZE];
-  char ack_buffer[ACK_SIZE];
   int  bytes_read[BUFFER_SIZE];
   int  sgmt_acknoledged_buff[BUFFER_SIZE] = { FALSE };
   int  sequence_nb                        = 1;
   int  window                             = 1;
   int  last_loaded_sgmt                   = 0;
 
-  int rcv;
+  int nb_sgmt_sent, retransmission;
 
-  int sgmt_sent;
-  int nb_ack_to_rcv = 0;
-
-  long rtt;
   long srtt   = 100000;
-  long rto    = 100000;
   long rttvar = 0;
 
+  set_timeout(data_desc, 0, 500000);
+
   do {
-    sgmt_sent = send_sgmts(file,
-                           data_desc,
-                           segments,
-                           bytes_read,
-                           snd_time,
-                           &last_loaded_sgmt,
-                           sequence_nb,
-                           window);
-    sequence_nb += sgmt_sent;
-    nb_ack_to_rcv += sgmt_sent;
+    nb_sgmt_sent = send_sgmts(file,
+                              data_desc,
+                              segments,
+                              bytes_read,
+                              snd_time,
+                              &last_loaded_sgmt,
+                              sequence_nb,
+                              window);
+    sequence_nb += nb_sgmt_sent;
 
-    // reinit_sgmt_ack_buff(sgmt_acknoledged_buff, sequence_nb, i);
+    retransmission = rcv_ack(file,
+                             data_desc,
+                             segments,
+                             bytes_read,
+                             snd_time,
+                             sgmt_acknoledged_buff,
+                             &last_loaded_sgmt,
+                             sequence_nb,
+                             nb_sgmt_sent,
+                             &srtt,
+                             &rttvar);
 
-    // acknoledgment
-    while (nb_ack_to_rcv > 0) {
-      set_timeout(data_desc, 0, rto);
-      memset(ack_buffer, '\0', ACK_SIZE + 1);
-      rcv = recv(data_desc,
-                 ack_buffer,
-                 ACK_SIZE,
-                 0);
-
-      if (rcv < 0) {
-        if (errno == EWOULDBLOCK) {
-          sequence_nb = first_non_ack(sgmt_acknoledged_buff,
-                                      sequence_nb,
-                                      sgmt_sent);
-          fprintf(stderr, "Timeout on ACK %d\n", sequence_nb);
-          window = 1;
-          nb_ack_to_rcv--;
-          break;
-        }
-        else perror("Error receiving ACK\n");
-      }
-      else {
-        parsed_ack = atoi(ack_buffer + 3);
-
-        if (sgmt_acknoledged_buff[parsed_ack % BUFFER_SIZE]) {
-          fprintf(stderr, "Selective ACK on segment %d\n", parsed_ack);
-          sequence_nb                                     = parsed_ack + 1;
-          sgmt_acknoledged_buff[parsed_ack % BUFFER_SIZE] = FALSE;
-          window                                          = 1;
-          nb_ack_to_rcv--;
-          break;
-        }
-        else {
-          nb_ack_to_rcv--;
-          window++;
-          gettimeofday(&ack_time, 0);
-          rtt = timedifference_usec(snd_time[parsed_ack % BUFFER_SIZE], ack_time);
-          update_rto(&rto, &srtt, &rtt, &rttvar);
-          printf("RTO %ld ",          rto);
-          printf("Received ACK %d\n", parsed_ack);
-          sgmt_acknoledged_buff[parsed_ack % BUFFER_SIZE] = TRUE;
-        }
-      }
-    }
-  } while (sgmt_sent != 0 || nb_ack_to_rcv != 0);
+    if (retransmission) window = 1;
+    else window += 2;
+  } while (nb_sgmt_sent != 0);
 }
 
 int main(int argc, char const *argv[]) {
@@ -197,9 +240,9 @@ int main(int argc, char const *argv[]) {
   data_desc      = my_accept(desc, &src_addr);
   data_desc_open = TRUE;
 
-  #if DEBUG
+#if DEBUG
   printf("Waiting for file name\n");
-  #endif /* if DEBUG */
+#endif /* if DEBUG */
 
   if (recv(data_desc, buffer, sizeof(buffer), 0) == -1) {
     perror("Error receiving file name\n");
