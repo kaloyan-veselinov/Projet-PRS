@@ -6,8 +6,8 @@
 #include <string.h>
 #include <unistd.h>
 #include <math.h>
-#include <pthread.h>
 #include <errno.h>
+#include <time.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -27,8 +27,8 @@
 #define DATA_SIZE (RCVSIZE-HEADER_SIZE*sizeof(char))
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)
-#define BUFFER_SIZE 20
-#define WINDOW 4
+#define BUFFER_SIZE 100
+#define MAX_RETRANSMIT 7
 #define G 0.125
 #define H 0.25
 
