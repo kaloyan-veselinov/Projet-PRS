@@ -3,33 +3,14 @@
 
 #include "socket.h"
 
-void reinit_sgmt_ack_buff(int sgmt_acknoledged_buff[BUFFER_SIZE],
-                          int sequence_nb,
-                          int window);
+void reinit_sgmt_ack_buff(SEGMENT segments[BUFFER_SIZE],
+                          unsigned int next_segment,
+                          unsigned int cwnd);
 
 size_t load_sgmt(FILE *file,
-                 char  buff[RCVSIZE],
-                 int   sequence_nb);
+                 char buff[RCVSIZE],
+                 int next_segment);
 
-int send_sgmts(FILE          *file,
-               int            data_desc,
-               char           segments[BUFFER_SIZE][RCVSIZE],
-               size_t *bytes_read,
-               struct timeval snd_time[BUFFER_SIZE],
-               int           *last_loaded_sgmt,
-               int            sequence_nb,
-               int            window);
-
-int rcv_ack(FILE          *file,
-            int            data_desc,
-            char           segments[BUFFER_SIZE][RCVSIZE],
-            size_t *bytes_read,
-            struct timeval snd_time[BUFFER_SIZE],
-            int            sgmt_acknoledged_buff[BUFFER_SIZE],
-            int           *last_loaded_sgmt,
-            int            sequence_nb,
-            int            nb_ack_to_rcv,
-            long          *srtt,
-            long          *rttvar);
+void handle_client(int data_desc, long srtt, long rttvar);
 
 #endif // ifndef _SERVEUR1_H

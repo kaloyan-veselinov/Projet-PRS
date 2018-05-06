@@ -28,28 +28,36 @@
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)
 #define BUFFER_SIZE 100
-#define MAX_RETRANSMIT 7
 #define G 0.125
 #define H 0.25
 
-#define MAX(X, Y) (((X) > (Y)) ? (X) : (Y))
+typedef enum mode {SLOW_START, CONGESTION_AVOIDANCE} MODE;
 
-typedef struct client_address{
-    int desc;
-    struct sockaddr_in addr;
-}ADDRESS;
+typedef struct segment {
+    char data[RCVSIZE];
+    size_t msg_size;
+    struct timeval snd_time;
+    unsigned int nb_ack;
+}SEGMENT;
 
-struct sockaddr_in init_addr(int port, int addr);
+typedef struct rtt_data {
+    long srtt;
+    long rto;
+    long rttvar;
+    long rtt;
+}RTT_DATA;
+
+struct sockaddr_in init_addr(uint16_t port, uint32_t addr);
 
 void set_timeout(int desc, long tv_sec, long tv_usec);
 
-int create_socket(int port);
+int create_socket(uint16_t port);
 
 int my_bind(int socket, struct sockaddr* addr);
 
-int random_port();
+uint16_t random_port();
 
-int my_accept(int desc, struct sockaddr_in* addr);
+int my_accept(int desc, struct sockaddr_in* addr, long *srtt, long *rttvar);
 
 void send_disconnect_message(int data_desc);
 
