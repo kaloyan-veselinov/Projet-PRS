@@ -85,6 +85,7 @@ int random_port() {
 
 int my_accept(int desc, struct sockaddr_in *addr) {
   char msg[RCVSIZE];
+  struct timeval snd_time, rcv_time;
 
   memset(msg,  '\0', RCVSIZE);
 
@@ -120,6 +121,7 @@ int my_accept(int desc, struct sockaddr_in *addr) {
 
   sprintf(msg, "SYN-ACK%04d", port);
   sendto(desc, msg, strlen(msg) + 1, 0, (struct sockaddr *)&addr, addr_len);
+
   #if DEBUG
   printf("SYN-ACK envoyé\n");
   #endif /* if DEBUG */
