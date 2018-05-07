@@ -1,4 +1,4 @@
-#include "serveur2-PerformancesRadicalementSuperieures.h"
+#include "serveur1-PerformancesRadicalementSuperieures.h"
 
 int desc, data_desc;
 FILE *file;
@@ -22,7 +22,6 @@ __sighandler_t end_handler() {
   exit(EXIT_SUCCESS);
 }
 
-
 void handle_client(int data_desc, long srtt, long rttvar) {
   SEGMENT segment;
   char ack_buffer[RCVSIZE];
@@ -32,7 +31,7 @@ void handle_client(int data_desc, long srtt, long rttvar) {
   short end;
   short retransmission;
   unsigned int parsed_ack = 0;
-  long rtt, rto;
+  long rtt, rto; // defines timeout delay
   struct timeval ack_time;
 
   set_timeout(data_desc, 0, 100000);
@@ -42,16 +41,16 @@ void handle_client(int data_desc, long srtt, long rttvar) {
     segment.nb_ack = 0;
     memset(segment.data, '\0', RCVSIZE);
 
+    // Loading segment into buffer
     sprintf(segment.data, "%06d", sequence_number);
     segment.msg_size = fread(segment.data + HEADER_SIZE, 1, DATA_SIZE, file);
-
     if (segment.msg_size == -1) perror("Error reading file\n");
-
     datagram_size = segment.msg_size + (HEADER_SIZE * sizeof(char));
 
+    // End if the message is empty
     end = (segment.msg_size == 0);
-
     if (!end) {
+      // Send data to client and get sent time
       snd = send(data_desc, segment.data, datagram_size, 0);
       gettimeofday(&segment.snd_time, 0);
       retransmission = FALSE;
@@ -61,14 +60,16 @@ void handle_client(int data_desc, long srtt, long rttvar) {
         printf("Sent segment %06d\n", sequence_number);
 
         do {
+          // Waiting for ACK
           memset(ack_buffer, '\0', ACK_SIZE + 1);
           rcv = recv(data_desc, ack_buffer, ACK_SIZE, 0);
 
-          // Timeout, resending segment
           if (rcv < 0) {
+            // Timeout, resending segment
             send(data_desc, segment.data, datagram_size, 0);
             retransmission = TRUE;
           } else{
+            // Received segment
             parsed_ack = (unsigned int) atoi(ack_buffer + 3);
             printf("Received ACK %d\n", parsed_ack);
             segment.nb_ack++;
@@ -84,6 +85,7 @@ void handle_client(int data_desc, long srtt, long rttvar) {
 
         } while(segment.nb_ack == 0);
 
+        // Increment sequence number for next segment
         sequence_number++;
       }
     }
@@ -110,6 +112,7 @@ int main(int argc, char const *argv[]) {
   desc = create_socket(port);
   desc_open = TRUE;
 
+  // Initialize the timeout
   long srtt = 100000;
   long rttvar = 0;
   memset(&src_addr, 0, addr_len);
