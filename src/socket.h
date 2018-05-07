@@ -22,7 +22,7 @@
 #define TRUE 1
 #define FALSE 0
 
-#define RCVSIZE 1460
+#define RCVSIZE 1500
 #define HEADER_SIZE 6
 #define DATA_SIZE (RCVSIZE-HEADER_SIZE*sizeof(char))
 #define ACK_SIZE (HEADER_SIZE+3)
