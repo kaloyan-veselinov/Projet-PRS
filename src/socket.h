@@ -33,7 +33,7 @@
 
 typedef struct segment {
     char data[RCVSIZE];
-    size_t msg_size;
+    size_t data_size;
     struct timeval snd_time;
     unsigned int nb_ack;
 }SEGMENT;
