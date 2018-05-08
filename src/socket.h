@@ -31,8 +31,6 @@
 #define G 0.125
 #define H 0.25
 
-typedef enum mode {SLOW_START, CONGESTION_AVOIDANCE} MODE;
-
 typedef struct segment {
     char data[RCVSIZE];
     size_t msg_size;
@@ -57,12 +55,12 @@ int my_bind(int socket, struct sockaddr* addr);
 
 uint16_t random_port();
 
-int my_accept(int desc, struct sockaddr_in* addr, long *srtt, long *rttvar);
+int my_accept(int desc, RTT_DATA *rtt_data);
 
 void send_disconnect_message(int data_desc);
 
 long timedifference_usec(struct timeval t0, struct timeval t1);
 
-void update_rto(long *rto, long *srtt, long *rtt, long *rttvar);
+void update_rto(RTT_DATA *rtt_data);
 
 #endif

@@ -13,7 +13,10 @@ all : ../bin/serveur1-$(NOMGRP) ../bin/serveur2-$(NOMGRP) ../bin/serveur3-$(NOMG
 ../bin/serveur3-$(NOMGRP): serveur3-$(NOMGRP).o socket.o
 	gcc $(CFLAGS) $^ -o $@ -lm -lpthread
 
-%.o: %.c %.h
+socket.o: socket.c socket.h
+	gcc $(CFLAGS) -c $< -o $@
+
+%.o: %.c
 	gcc $(CFLAGS) -c $< -o $@
 
 clean:

@@ -1,28 +1,25 @@
-#include "serveur1-PerformancesRadicalementSuperieures.h"
+#include "socket.h"
 
-int desc, data_desc;
+int data_desc;
 FILE *file;
 
 int data_desc_open = FALSE;
 int file_open = FALSE;
-int desc_open = FALSE;
 
-__sighandler_t end_handler() {
-#if DEBUG
-    printf("Entering end handler\n");
-#endif /* if DEBUG */
+void end_handler() {
+    fprintf(stderr, "%d entered end_handler\n", getpid());
 
+    // Sending FIN
     send_disconnect_message(data_desc);
 
+    // Closing data socket and file
     if (data_desc_open) close(data_desc);
-
-    if (desc_open) close(desc);
-
     if (file_open) fclose(file);
+
     exit(EXIT_SUCCESS);
 }
 
-void handle_client(int data_desc, long srtt, long rttvar) {
+void handle_client(int data_desc, RTT_DATA rtt_data) {
     SEGMENT segment;
     char ack_buffer[RCVSIZE];
     unsigned int sequence_number = 1;
@@ -31,7 +28,6 @@ void handle_client(int data_desc, long srtt, long rttvar) {
     short end;
     short retransmission;
     unsigned int parsed_ack = 0;
-    long rtt, rto; // defines timeout delay
     struct timeval ack_time;
 
     set_timeout(data_desc, 0, 100000);
@@ -53,10 +49,11 @@ void handle_client(int data_desc, long srtt, long rttvar) {
             // Send data to client and get sent time
             snd = send(data_desc, segment.data, datagram_size, 0);
             gettimeofday(&segment.snd_time, 0);
+
+            // First transmission of this message
             retransmission = FALSE;
 
-            if (snd < 0) perror("Error sending segment\n");
-            else {
+            if (snd > 0) {
                 printf("Sent segment %06d\n", sequence_number);
 
                 do {
@@ -64,75 +61,76 @@ void handle_client(int data_desc, long srtt, long rttvar) {
                     memset(ack_buffer, '\0', ACK_SIZE + 1);
                     rcv = recv(data_desc, ack_buffer, ACK_SIZE, 0);
 
-                    if (rcv < 0) {
-                        // Timeout, resending segment
-                        send(data_desc, segment.data, datagram_size, 0);
-                        retransmission = TRUE;
-                    } else{
-                        // Received segment
+                    if (rcv > 0) {
                         parsed_ack = (unsigned int) atoi(ack_buffer + 3);
                         printf("Received ACK %d\n", parsed_ack);
                         segment.nb_ack++;
 
                         // Karn's algorithm, updating rto only if no retransmission
-                        if(!retransmission) {
+                        if (!retransmission) {
                             gettimeofday(&ack_time, 0);
-                            rtt = timedifference_usec(segment.snd_time, ack_time);
-                            update_rto(&rto, &srtt, &rtt, &rttvar);
-                            set_timeout(data_desc, 0, rto);
+                            rtt_data.rtt = timedifference_usec(segment.snd_time, ack_time);
+                            update_rto(&rtt_data);
+                            set_timeout(data_desc, 0, rtt_data.rto);
+                        }
+                    } else {
+                        if (errno == EWOULDBLOCK) {
+                            // Timeout, resending segment
+                            send(data_desc, segment.data, datagram_size, 0);
+                            retransmission = TRUE;
+                        } else {
+                            perror("Unknown error receiving file\n");
+                            exit(EXIT_FAILURE);
                         }
                     }
 
-                } while(segment.nb_ack == 0);
+                } while (segment.nb_ack == 0);
 
                 // Increment sequence number for next segment
                 sequence_number++;
-            }
+            } else perror("Error sending segment\n");
         }
     } while (!end);
 }
 
 int main(int argc, char const *argv[]) {
+    char buffer[RCVSIZE] = {0};
+    uint16_t port;
+    RTT_DATA rtt_data;
+    int desc;
+
     signal(SIGTSTP, (__sighandler_t) end_handler);
 
-    struct sockaddr_in src_addr;
-    socklen_t addr_len = sizeof(src_addr);
-    char buffer[RCVSIZE] = {0};
-
-    uint16_t port;
-
+    // Get public port from argv
     if (argc == 2) {
         errno = 0;
         port = (uint16_t) strtol(argv[1], NULL, 10);
-        if (errno != 0) {
-            port = 4242;
-        }
+        if (errno != 0) port = 4242;
     } else port = 4242;
 
+    // Create public connection socket
     desc = create_socket(port);
-    desc_open = TRUE;
 
     // Initialize the timeout
-    long srtt = 100000;
-    long rttvar = 0;
-    memset(&src_addr, 0, addr_len);
-    data_desc = my_accept(desc, &src_addr, &srtt, &rttvar);
+    data_desc = my_accept(desc, &rtt_data);
     data_desc_open = TRUE;
 
-    if (recv(data_desc, buffer, sizeof(buffer), 0) == -1) {
+    // Closing public connection socket
+    close(desc);
+
+    // Waiting for file name on public soc
+    if (recv(data_desc, buffer, sizeof(buffer), 0) == -1)
         perror("Error receiving file name\n");
-        end_handler();
-    }
 
+    // Opening file
     file = fopen(buffer, "r");
-
     if (file == NULL) {
         perror("Error opening file\n");
         end_handler();
     }
     file_open = TRUE;
 
-    handle_client(data_desc, srtt, rttvar);
+    handle_client(data_desc, rtt_data);
 
     end_handler();
     return 0;
