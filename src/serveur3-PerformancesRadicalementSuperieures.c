@@ -31,25 +31,20 @@ size_t get_datagram_size(SEGMENT segment) {
     return segment.data_size + (HEADER_SIZE * sizeof(char));
 }
 
-unsigned int first_non_ack_segment(SEGMENT segments[BUFFER_SIZE], unsigned int next_sequence_number, int nb_sent) {
-    unsigned int res = next_sequence_number - nb_sent;
-    while (res < next_sequence_number && segments[res % BUFFER_SIZE].nb_ack) res++;
-    return res;
-}
-
 void handle_client(int data_desc, RTT_DATA rtt_data) {
     SEGMENT segments[BUFFER_SIZE];
     char ack_buffer[RCVSIZE];
     unsigned int sequence_number = 1;
     unsigned int last_loaded_segment = 0;
-    unsigned int p_buff, parsed_p_buff, first_not_ack = 0;
+    unsigned int p_buff, parsed_p_buff;
     unsigned int parsed_ack = 0;
-    int window = 5;
+    unsigned int max_acknoledged_segment = 0;
+    int window = 1;
     int nb_sent;
     int nb_ack;
     ssize_t snd, rcv;
     size_t datagram_size;
-    short end;
+    short end, timeout, duplicated_ack;
 
     struct timeval ack_time;
 
@@ -68,6 +63,8 @@ void handle_client(int data_desc, RTT_DATA rtt_data) {
                 sprintf(segments[p_buff].data, "%06d", sequence_number);
                 segments[p_buff].data_size = fread(segments[p_buff].data + HEADER_SIZE, 1, DATA_SIZE, file);
                 if (segments[p_buff].data_size == -1) perror("Error reading file\n");
+
+                last_loaded_segment = sequence_number;
             }
 
             // End if the message is empty
@@ -92,6 +89,9 @@ void handle_client(int data_desc, RTT_DATA rtt_data) {
         } while (!end && nb_sent < window);
 
         if (nb_sent > 0) {
+            duplicated_ack = FALSE;
+            timeout = FALSE;
+
             do {
                 // Waiting for ACK
                 memset(ack_buffer, '\0', ACK_SIZE + 1);
@@ -99,20 +99,25 @@ void handle_client(int data_desc, RTT_DATA rtt_data) {
 
                 if (rcv > 0) {
                     parsed_ack = (unsigned int) atoi(ack_buffer + 3);
-                    printf("Received ACK %d\n", parsed_ack);
                     parsed_p_buff = parsed_ack % BUFFER_SIZE;
                     nb_ack = ++segments[parsed_p_buff].nb_ack;
 
                     if (nb_ack == 1) {
+                        printf("Received ACK %d\n", parsed_ack);
+
+                        if (parsed_ack > max_acknoledged_segment) max_acknoledged_segment = parsed_ack;
+
                         // Karn's algorithm, updating rto only if no retransmission and no duplicated ACK
                         gettimeofday(&ack_time, 0);
                         rtt_data.rtt = timedifference_usec(segments[parsed_p_buff].snd_time, ack_time);
                         update_rto(&rtt_data);
                         set_timeout(data_desc, 0, rtt_data.rto);
-                    } else if (nb_ack == 3 && parsed_ack < (sequence_number - 1)) {
+                    } else if (nb_ack >= 3 && parsed_ack < sequence_number) {
                         // Duplicated ACK, resending only if segment in current window
+                        printf("Duplicated ACK on %d \n", parsed_ack);
                         snd = send(data_desc, segments[(parsed_ack + 1) % BUFFER_SIZE].data,
                                    get_datagram_size(segments[(parsed_ack + 1) % BUFFER_SIZE]), 0);
+                        duplicated_ack = TRUE;
                         if (snd < 0) {
                             perror("Error resending segment on duplicated ACK");
                             exit(EXIT_FAILURE);
@@ -120,19 +125,23 @@ void handle_client(int data_desc, RTT_DATA rtt_data) {
                     }
                 } else {
                     if (errno == EWOULDBLOCK) {
-                        // Timeout, resending first non-acknoledged segment in current window
-                        first_not_ack = first_non_ack_segment(segments, sequence_number, nb_sent);
-                        if (first_not_ack < sequence_number) {
-                            send(data_desc, segments[first_not_ack % BUFFER_SIZE].data,
-                                 get_datagram_size(segments[first_not_ack % BUFFER_SIZE]), 0);
-                        }
+                        // Timeout, resending first non-acknoledged segment
+                        printf("Timeout, restarting at %d\n", max_acknoledged_segment);
+                        sequence_number = max_acknoledged_segment;
+                        timeout = TRUE;
                     } else {
                         perror("Unknown error receiving file\n");
                         exit(EXIT_FAILURE);
                     }
                 }
 
-            } while ((parsed_ack + 1) != sequence_number && first_not_ack < sequence_number);
+            } while ((max_acknoledged_segment + 1) < sequence_number);
+
+            if(timeout || duplicated_ack){
+                window /= 2;
+                window ++;
+            } else window += 2;
+
         }
 
     } while (nb_sent != 0);
