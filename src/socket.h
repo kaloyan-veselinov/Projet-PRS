@@ -31,6 +31,7 @@
 #define G 0.125
 #define H 0.25
 
+
 typedef struct segment {
     char data[RCVSIZE];
     size_t data_size;
