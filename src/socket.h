@@ -8,6 +8,7 @@
 #include <math.h>
 #include <errno.h>
 #include <time.h>
+#include <pthread.h>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -31,7 +32,6 @@
 #define G 0.125
 #define H 0.25
 
-
 typedef struct segment {
     char data[RCVSIZE];
     size_t data_size;
@@ -46,6 +46,13 @@ typedef struct rtt_data {
     long rtt;
 }RTT_DATA;
 
+typedef struct thread_data{
+    SEGMENT segments[BUFFER_SIZE];
+    int sequence_number;
+    int window;
+    int nb_sent;
+}THREAD_DATA;
+
 struct sockaddr_in init_addr(uint16_t port, uint32_t addr);
 
 void set_timeout(int desc, long tv_sec, long tv_usec);
@@ -56,7 +63,7 @@ int my_bind(int socket, struct sockaddr* addr);
 
 uint16_t random_port();
 
-int my_accept(int desc, RTT_DATA *rtt_data);
+int my_accept(int desc);
 
 void send_disconnect_message(int data_desc);
 

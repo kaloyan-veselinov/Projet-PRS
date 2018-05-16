@@ -46,11 +46,10 @@ uint16_t random_port() {
     return random_value(1025, 9999);
 }
 
-int my_accept(int desc, RTT_DATA *rtt_data) {
+int my_accept(int desc) {
     struct sockaddr_in addr;
     socklen_t addr_len = sizeof(addr);
     char msg[RCVSIZE];
-    struct timeval snd_time, rcv_time;
     int data_desc;
     uint16_t port;
 
@@ -78,7 +77,6 @@ int my_accept(int desc, RTT_DATA *rtt_data) {
     memset(msg, '\0', RCVSIZE);
     sprintf(msg, "SYN-ACK%04d", port);
     sendto(desc, msg, strlen(msg) + 1, 0, (struct sockaddr *) &addr, addr_len);
-    gettimeofday(&snd_time, 0);
 
     // Waiting for ACK of SYN-ACK
     memset(msg, '\0', RCVSIZE);
@@ -87,7 +85,7 @@ int my_accept(int desc, RTT_DATA *rtt_data) {
         perror("Erreur de réception du ACK de connexion\n.");
         return EXIT_FAILURE;
     }
-    gettimeofday(&rcv_time, 0);
+
     if (strncmp("ACK", msg, strlen("ACK")) != 0) {
         perror("Mauvais message d'ACK de connexion.\n");
         EXIT_FAILURE;
@@ -96,13 +94,6 @@ int my_accept(int desc, RTT_DATA *rtt_data) {
 
     // Caching the receivers' socket
     connect(data_desc, (struct sockaddr *) &addr, addr_len);
-
-    // Initializing timer on data socket
-    rtt_data->rtt = timedifference_usec(snd_time, rcv_time);
-    rtt_data->srtt = 100000;
-    rtt_data->rttvar = 0;
-    update_rto(rtt_data);
-    set_timeout(data_desc, 0, rtt_data->rto);
 
     return data_desc;
 }

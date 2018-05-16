@@ -23,45 +23,58 @@ size_t get_datagram_size(SEGMENT segment) {
     return segment.data_size + (HEADER_SIZE * sizeof(char));
 }
 
-void handle_client(int data_desc, RTT_DATA rtt_data) {
-    SEGMENT segments[BUFFER_SIZE];
-    char ack_buffer[RCVSIZE];
-    unsigned int sequence_number = 1;
-    unsigned int last_loaded_segment = 0;
-    unsigned int p_buff, parsed_p_buff;
-    unsigned int parsed_ack = 0;
-    unsigned int max_acknoledged_segment = 0;
-    int window = 10;
-    int nb_sent;
-    int nb_ack;
-    ssize_t snd, rcv;
-    size_t datagram_size;
-    short end;
+int data_desc;
+int nb_segment;
 
-    struct timeval ack_time;
+SEGMENT segments[BUFFER_SIZE];
+unsigned int sequence_number = 1;
+unsigned int max_ack = 0;
+unsigned int window = 10;
+unsigned int nb_sent;
+
+pthread_mutex_t mutex;
+
+void *send_thread() {
+    unsigned int last_loaded_segment = 0;
+    unsigned int p_buff;
+    ssize_t snd;
+    size_t datagram_size;
+    unsigned int local_sequence_number;
+    unsigned int local_window;
+    unsigned int local_nb_sent;
+    unsigned int local_max_ack;
+    short snd_end;
 
     do {
-        nb_sent = 0;
+        pthread_mutex_lock(&mutex);
+        local_sequence_number = max_ack + 1;
+        local_window = window;
+        local_nb_sent = 0;
+        local_max_ack = max_ack;
+        pthread_mutex_unlock(&mutex);
+
         do {
-            p_buff = sequence_number % BUFFER_SIZE;
+            p_buff = local_sequence_number % BUFFER_SIZE;
+
+            pthread_mutex_lock(&mutex);
 
             // Load data only if datagram hasn't been loaded yet
-            if (sequence_number > last_loaded_segment) {
+            if (local_sequence_number > last_loaded_segment) {
                 // Initializing segment
                 segments[p_buff].nb_ack = 0;
                 memset(segments[p_buff].data, '\0', RCVSIZE);
 
                 // Loading segment into buffer
-                sprintf(segments[p_buff].data, "%06d", sequence_number);
+                sprintf(segments[p_buff].data, "%06d", local_sequence_number);
                 segments[p_buff].data_size = fread(segments[p_buff].data + HEADER_SIZE, 1, DATA_SIZE, file);
                 if (segments[p_buff].data_size == -1) perror("Error reading file\n");
-                last_loaded_segment = sequence_number;
+                last_loaded_segment = local_sequence_number;
             }
 
             // End if the message is empty
-            end = (segments[p_buff].data_size == 0);
+            snd_end = (segments[p_buff].data_size == 0);
 
-            if (!end) {
+            if (!snd_end) {
                 datagram_size = get_datagram_size(segments[p_buff]);
 
                 // Send data to client and get sent time
@@ -69,69 +82,100 @@ void handle_client(int data_desc, RTT_DATA rtt_data) {
                 gettimeofday(&(segments[p_buff].snd_time), 0);
 
                 if (snd > 0) {
-                    printf("Sent segment %06d\n", sequence_number);
-                    nb_sent++;
-                    sequence_number++;
+                    printf("Sent segment %06d\n", local_sequence_number);
+                    local_nb_sent++;
+                    local_sequence_number++;
                 } else {
                     perror("Error sending segment\n");
                     exit(EXIT_FAILURE);
                 }
             }
-        } while (!end && nb_sent < window);
 
-        if (nb_sent > 0) {
-            do {
-                // Waiting for ACK
-                memset(ack_buffer, '\0', ACK_SIZE + 1);
-                rcv = recv(data_desc, ack_buffer, ACK_SIZE, 0);
+            pthread_mutex_unlock(&mutex);
 
-                if (rcv > 0) {
-                    parsed_ack = (unsigned int) atoi(ack_buffer + 3);
-                    parsed_p_buff = parsed_ack % BUFFER_SIZE;
-                    nb_ack = ++segments[parsed_p_buff].nb_ack;
+        } while (!snd_end && local_nb_sent < local_window);
 
-                    if (nb_ack == 1) {
-                        printf("Received ACK %d\n", parsed_ack);
+    } while (local_max_ack <= nb_segment);
+    pthread_exit(NULL);
+}
 
-                        if (parsed_ack > max_acknoledged_segment) max_acknoledged_segment = parsed_ack;
+void *ack_thread() {
+    char ack_buffer[RCVSIZE];
+    unsigned int parsed_p_buff;
+    unsigned int parsed_ack = 0;
+    unsigned int local_max_ack = 0;
+    int nb_ack;
+    ssize_t snd, rcv;
 
-                        // Karn's algorithm, updating rto only if no retransmission and no duplicated ACK
-                        gettimeofday(&ack_time, 0);
-                        rtt_data.rtt = timedifference_usec(segments[parsed_p_buff].snd_time, ack_time);
-                        update_rto(&rtt_data);
-                        set_timeout(data_desc, 0, rtt_data.rto);
-                    } else if (nb_ack >= 3 && parsed_ack < sequence_number) {
-                        // Duplicated ACK, resending only if segment in current window
-                        printf("Duplicated ACK on %d \n", parsed_ack);
-                        snd = send(data_desc, segments[(parsed_ack + 1) % BUFFER_SIZE].data,
-                                   get_datagram_size(segments[(parsed_ack + 1) % BUFFER_SIZE]), 0);
-                       if (snd < 0) {
-                            perror("Error resending segment on duplicated ACK");
-                            exit(EXIT_FAILURE);
-                        }
-                    }
-                } else {
-                    if (errno == EWOULDBLOCK) {
-                        // Timeout, resending window starting at first non-ack segment
-                        printf("Timeout, restarting at %d\n", max_acknoledged_segment + 1);
-                        sequence_number = max_acknoledged_segment+1;
-                    } else {
-                        perror("Unknown error receiving file\n");
-                        exit(EXIT_FAILURE);
-                    }
-                }
+    do {
+        // Waiting for ACK
+        memset(ack_buffer, '\0', ACK_SIZE + 1);
+        rcv = recv(data_desc, ack_buffer, ACK_SIZE, 0);
 
-            } while ((max_acknoledged_segment + 1) < sequence_number);
+        if (rcv > 0) {
+            parsed_ack = (unsigned int) atoi(ack_buffer + 3);
+            parsed_p_buff = parsed_ack % BUFFER_SIZE;
+            printf("Received ACK %d\n", parsed_ack);
+
+            pthread_mutex_lock(&mutex);
+            nb_ack = ++segments[parsed_p_buff].nb_ack;
+            pthread_mutex_unlock(&mutex);
+
+            if (parsed_ack > local_max_ack) {
+                local_max_ack = parsed_ack;
+
+                pthread_mutex_lock(&mutex);
+                max_ack = local_max_ack;
+                pthread_mutex_unlock(&mutex);
+            }
+
+            if (nb_ack >= 3 && parsed_ack < sequence_number) {
+                // Duplicated ACK, resending only if segment in current window
+                printf("Duplicated ACK on %d \n", parsed_ack);
+                pthread_mutex_lock(&mutex);
+                max_ack = local_max_ack;
+                pthread_mutex_unlock(&mutex);
+            }
+        } else {
+            perror("Unknown error receiving file\n");
+            exit(EXIT_FAILURE);
         }
 
-    } while (nb_sent != 0);
+    } while (local_max_ack <= nb_segment);
+    fprintf(stderr, "Exiting ack thread\n");
+    pthread_exit(NULL);
+}
+
+void handle_client(int desc) {
+    pthread_t snd;
+    pthread_t ack;
+
+    pthread_mutex_init(&mutex, NULL);
+
+    set_timeout(desc, 0, 0);
+
+    data_desc = desc;
+
+    if (pthread_create(&snd, NULL, send_thread, NULL) != 0) {
+        perror("Error creating send thread");
+        exit(EXIT_FAILURE);
+    }
+
+    if (pthread_create(&ack, NULL, ack_thread, NULL) != 0) {
+        perror("Error creating ack thread");
+        exit(EXIT_FAILURE);
+    }
+
+    pthread_join(snd, NULL);
+    pthread_join(ack, NULL);
+    end_handler();
 }
 
 int main(int argc, char const *argv[]) {
     char buffer[RCVSIZE] = {0};
     uint16_t port;
-    RTT_DATA rtt_data;
     int desc;
+    ssize_t file_size;
 
     signal(SIGTSTP, (__sighandler_t) end_handler);
 
@@ -146,7 +190,7 @@ int main(int argc, char const *argv[]) {
     desc = create_socket(port);
 
     // Initialize the timeout
-    data_desc = my_accept(desc, &rtt_data);
+    data_desc = my_accept(desc);
     data_desc_open = TRUE;
 
     // Closing public connection socket
@@ -164,7 +208,13 @@ int main(int argc, char const *argv[]) {
     }
     file_open = TRUE;
 
-    handle_client(data_desc, rtt_data);
+    fseek(file, 0L, SEEK_END);
+    file_size = ftell(file);
+    fseek(file, 0L, SEEK_SET);
+    nb_segment = file_size / DATA_SIZE ;
+    fprintf(stderr, "segments to send %d\n", nb_segment);
+
+    handle_client(data_desc);
 
     end_handler();
     return 0;
