@@ -39,7 +39,7 @@ void handle_client(int data_desc, RTT_DATA rtt_data) {
     unsigned int p_buff, parsed_p_buff;
     unsigned int parsed_ack = 0;
     unsigned int max_acknoledged_segment = 0;
-    int window = 1;
+    int window = 10;
     int nb_sent;
     int nb_ack;
     ssize_t snd, rcv;
