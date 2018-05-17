@@ -46,54 +46,52 @@ uint16_t random_port() {
     return random_value(1025, 9999);
 }
 
-int my_accept(int desc) {
-    struct sockaddr_in addr;
-    socklen_t addr_len = sizeof(addr);
+int my_accept(int desc, struct sockaddr_in *addr, socklen_t *addrlen) {
     char msg[RCVSIZE];
     int data_desc;
     uint16_t port;
 
     // Waiting for connection message
     memset(msg, '\0', RCVSIZE);
-    memset(&addr, 0, addr_len);
-    if (recvfrom(desc, msg, SYN_SIZE, 0, (struct sockaddr *) &addr, &addr_len) == -1) {
+    if (recvfrom(desc, msg, SYN_SIZE, 0, (struct sockaddr *) addr, addrlen) < 0) {
         perror("Error receiving on connection socket");
-        return EXIT_FAILURE;
+        return -1;
     }
+#if DEBUG
     printf("SYN received: %s \n", msg);
-    if (strncmp("SYN", msg, SYN_SIZE) != 0) {
-        perror("Mauvais message de connexion\n");
-        return EXIT_FAILURE;
-    }
+#endif
 
     // Generating ephemeral data port
     do {
         port = random_port();
         data_desc = create_socket(port);
     } while (data_desc == -1);
+
+#if DEBUG
     printf("Ephemeral data port: %d\n", port);
+#endif
 
     // Sending SYN-ACK
-    memset(msg, '\0', RCVSIZE);
-    sprintf(msg, "SYN-ACK%04d", port);
-    sendto(desc, msg, strlen(msg) + 1, 0, (struct sockaddr *) &addr, addr_len);
+    char synAck[12] = {0};
+    sprintf(synAck, "SYN-ACK%04d", port);
+    if(sendto(desc, synAck, strlen(synAck)+1, 0, (struct sockaddr *)addr,*addrlen)<0){
+        perror("Error sending SYN-ACK\n");
+        return -1;
+    }
 
     // Waiting for ACK of SYN-ACK
     memset(msg, '\0', RCVSIZE);
-    if (recvfrom(desc, msg, RCVSIZE, 0, (struct sockaddr *) &addr,
-                 &addr_len) == -1) {
+    if (recvfrom(desc, msg, 4, 0, (struct sockaddr *) addr, addrlen) < 0) {
         perror("Erreur de réception du ACK de connexion\n.");
-        return EXIT_FAILURE;
+        return -1;
     }
 
-    if (strncmp("ACK", msg, strlen("ACK")) != 0) {
-        perror("Mauvais message d'ACK de connexion.\n");
-        EXIT_FAILURE;
-    }
-    perror("ACK reçu, connexion établie.\n");
+#if DEBUG
+    printf("ACK reçu\n");
+#endif
 
     // Caching the receivers' socket
-    connect(data_desc, (struct sockaddr *) &addr, addr_len);
+    connect(data_desc, (struct sockaddr *) addr, *addrlen);
 
     return data_desc;
 }
@@ -118,10 +116,19 @@ void set_timeout(int desc, long tv_sec, long tv_usec) {
     setsockopt(desc, SOL_SOCKET, SO_RCVTIMEO, (const char *) &tv, sizeof tv);
 }
 
-void send_disconnect_message(int data_desc) {
+int disconnect_udp_sock(int fd) {
+    struct sockaddr_in sin;
+
+    memset((char *)&sin, 0, sizeof(sin));
+    sin.sin_family = AF_UNSPEC;
+    return (connect(fd, (struct sockaddr *)&sin, sizeof(sin)));
+}
+
+void send_disconnect_message(int data_desc, struct sockaddr_in addr, socklen_t addrlen) {
+    disconnect_udp_sock(data_desc);
     ssize_t snd;
     do{
-        snd = send(data_desc, "FIN", 4*sizeof(char), 0);
+        snd = sendto(data_desc, "FIN", 4*sizeof(char), 0, (struct sockaddr *) &addr, addrlen);
         if(snd < 0) perror("Error sending FIN\n");
     } while(snd != 0);
 }

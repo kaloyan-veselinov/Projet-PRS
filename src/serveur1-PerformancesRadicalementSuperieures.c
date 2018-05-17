@@ -5,12 +5,14 @@ FILE *file;
 
 int data_desc_open = FALSE;
 int file_open = FALSE;
+struct sockaddr_in addr;
+socklen_t addrlen = sizeof(addr);
 
 void end_handler() {
     fprintf(stderr, "%d entered end_handler\n", getpid());
 
     // Sending FIN
-    send_disconnect_message(data_desc);
+    send_disconnect_message(data_desc, addr, addrlen);
     fprintf(stderr, "%d send FIN message\n", getpid());
 
     // Closing data socket and file
@@ -198,7 +200,7 @@ int main(int argc, char const *argv[]) {
     desc = create_socket(port);
 
     // Initialize the timeout
-    data_desc = my_accept(desc);
+    data_desc = my_accept(desc, &addr, &addrlen);
     data_desc_open = TRUE;
 
     // Closing public connection socket
