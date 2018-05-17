@@ -119,5 +119,9 @@ void set_timeout(int desc, long tv_sec, long tv_usec) {
 }
 
 void send_disconnect_message(int data_desc) {
-    send(data_desc, "FIN", 4*sizeof(char), 0);
+    ssize_t snd;
+    do{
+        snd = send(data_desc, "FIN", 4*sizeof(char), 0);
+        if(snd < 0) perror("Error sending FIN\n");
+    } while(snd != 0);
 }

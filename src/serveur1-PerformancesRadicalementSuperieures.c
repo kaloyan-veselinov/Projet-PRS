@@ -11,10 +11,13 @@ void end_handler() {
 
     // Sending FIN
     send_disconnect_message(data_desc);
+    fprintf(stderr, "%d send FIN message\n", getpid());
 
     // Closing data socket and file
     if (data_desc_open) close(data_desc);
+    fprintf(stderr, "%d closed data desc\n", getpid());
     if (file_open) fclose(file);
+    fprintf(stderr, "%d closed file, exiting now\n", getpid());
 
     exit(EXIT_SUCCESS);
 }
@@ -60,12 +63,15 @@ void *send_thread() {
 
             // Load data only if datagram hasn't been loaded yet
             if (local_sequence_number > last_loaded_segment) {
-                // Initializing segment
                 segments[p_buff].nb_ack = 0;
+
+                // Initializing buffer
                 memset(segments[p_buff].data, '\0', RCVSIZE);
 
-                // Loading segment into buffer
+                // Loading sequence number into buffer
                 sprintf(segments[p_buff].data, "%06d", local_sequence_number);
+
+                // Loading data into buffer
                 segments[p_buff].data_size = fread(segments[p_buff].data + HEADER_SIZE, 1, DATA_SIZE, file);
                 if (segments[p_buff].data_size == -1) perror("Error reading file\n");
                 last_loaded_segment = local_sequence_number;
@@ -95,7 +101,8 @@ void *send_thread() {
 
         } while (!snd_end && local_nb_sent < local_window);
 
-    } while (local_max_ack <= nb_segment);
+    } while (local_max_ack < nb_segment);
+    fprintf(stderr, "Exiting send thread\n");
     pthread_exit(NULL);
 }
 
@@ -105,7 +112,7 @@ void *ack_thread() {
     unsigned int parsed_ack = 0;
     unsigned int local_max_ack = 0;
     int nb_ack;
-    ssize_t snd, rcv;
+    ssize_t rcv;
 
     do {
         // Waiting for ACK
@@ -141,7 +148,7 @@ void *ack_thread() {
             exit(EXIT_FAILURE);
         }
 
-    } while (local_max_ack <= nb_segment);
+    } while (local_max_ack < nb_segment);
     fprintf(stderr, "Exiting ack thread\n");
     pthread_exit(NULL);
 }
@@ -166,8 +173,9 @@ void handle_client(int desc) {
         exit(EXIT_FAILURE);
     }
 
-    pthread_join(snd, NULL);
     pthread_join(ack, NULL);
+    pthread_join(snd, NULL);
+    fprintf(stderr, "Threads joined\n");
     end_handler();
 }
 
@@ -211,11 +219,10 @@ int main(int argc, char const *argv[]) {
     fseek(file, 0L, SEEK_END);
     file_size = ftell(file);
     fseek(file, 0L, SEEK_SET);
-    nb_segment = file_size / DATA_SIZE ;
+    nb_segment = (int) ceil(((double)file_size) / DATA_SIZE) ;
     fprintf(stderr, "segments to send %d\n", nb_segment);
 
     handle_client(data_desc);
 
-    end_handler();
     return 0;
 }
