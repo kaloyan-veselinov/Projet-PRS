@@ -16,22 +16,22 @@ struct sockaddr_in init_addr(uint16_t port, uint32_t addr) {
 int create_socket(uint16_t port) {
     struct sockaddr_in adresse = init_addr(port, INADDR_ANY);
     int desc = socket(AF_INET, SOCK_DGRAM, 0);
+    int valid = 1;
     if (desc < 0) {
-        perror("Cannot create socket\n");
+        perror("cannot create socket\n");
         return -1;
     }
-
-    int valid = 1;
     setsockopt(desc, SOL_SOCKET, SO_REUSEADDR, &valid, sizeof(int));
-    return (my_bind(desc, (struct sockaddr *) &adresse)<0)?-1:desc;
+    my_bind(desc, (struct sockaddr *) &adresse);
+    return desc;
 }
 
 int my_bind(int socket, struct sockaddr *addr) {
     if (bind(socket, addr, sizeof(*addr)) < 0) {
         perror("Erreur de bind de la socket\n");
-        return -1;
+        return EXIT_FAILURE;
     }
-    return 0;
+    return EXIT_SUCCESS;
 }
 
 uint16_t random_value(uint16_t min, uint16_t max) {
@@ -46,49 +46,54 @@ uint16_t random_port() {
     return random_value(1025, 9999);
 }
 
-int my_accept(int desc, struct sockaddr_in *addr, socklen_t *addrlen) {
+int my_accept(int desc) {
+    struct sockaddr_in addr;
+    socklen_t addr_len = sizeof(addr);
     char msg[RCVSIZE];
     int data_desc;
     uint16_t port;
 
     // Waiting for connection message
     memset(msg, '\0', RCVSIZE);
-    if (recvfrom(desc, msg, SYN_SIZE, 0, (struct sockaddr *) addr, addrlen) < 0) {
+    memset(&addr, 0, addr_len);
+    if (recvfrom(desc, msg, SYN_SIZE, 0, (struct sockaddr *) &addr, &addr_len) == -1) {
         perror("Error receiving on connection socket");
-        return -1;
+        return EXIT_FAILURE;
     }
-#if DEBUG
     printf("SYN received: %s \n", msg);
-#endif
+    if (strncmp("SYN", msg, SYN_SIZE) != 0) {
+        perror("Mauvais message de connexion\n");
+        return EXIT_FAILURE;
+    }
 
     // Generating ephemeral data port
     do {
         port = random_port();
         data_desc = create_socket(port);
     } while (data_desc == -1);
-
-#if DEBUG
     printf("Ephemeral data port: %d\n", port);
-#endif
 
     // Sending SYN-ACK
-    char synAck[12] = {0};
-    sprintf(synAck, "SYN-ACK%04d", port);
-    if(sendto(desc, synAck, strlen(synAck)+1, 0, (struct sockaddr *)addr,*addrlen)<0){
-        perror("Error sending SYN-ACK\n");
-        return -1;
-    }
+    memset(msg, '\0', RCVSIZE);
+    sprintf(msg, "SYN-ACK%04d", port);
+    sendto(desc, msg, strlen(msg) + 1, 0, (struct sockaddr *) &addr, addr_len);
 
     // Waiting for ACK of SYN-ACK
     memset(msg, '\0', RCVSIZE);
-    if (recvfrom(desc, msg, 4, 0, (struct sockaddr *) addr, addrlen) < 0) {
+    if (recvfrom(desc, msg, RCVSIZE, 0, (struct sockaddr *) &addr,
+                 &addr_len) == -1) {
         perror("Erreur de réception du ACK de connexion\n.");
-        return -1;
+        return EXIT_FAILURE;
     }
 
-#if DEBUG
-    printf("ACK reçu\n");
-#endif
+    if (strncmp("ACK", msg, strlen("ACK")) != 0) {
+        perror("Mauvais message d'ACK de connexion.\n");
+        EXIT_FAILURE;
+    }
+    perror("ACK reçu, connexion établie.\n");
+
+    // Caching the receivers' socket
+    connect(data_desc, (struct sockaddr *) &addr, addr_len);
 
     return data_desc;
 }
@@ -113,10 +118,10 @@ void set_timeout(int desc, long tv_sec, long tv_usec) {
     setsockopt(desc, SOL_SOCKET, SO_RCVTIMEO, (const char *) &tv, sizeof tv);
 }
 
-void send_disconnect_message(int data_desc, struct sockaddr_in *addr) {
+void send_disconnect_message(int data_desc) {
     ssize_t snd;
     do{
-        snd = sendto(data_desc, "FIN", 4*sizeof(char), 0, (struct sockaddr *) addr, sizeof(*addr));
+        snd = send(data_desc, "FIN", 4*sizeof(char), 0);
         if(snd < 0) perror("Error sending FIN\n");
     } while(snd != 0);
 }
