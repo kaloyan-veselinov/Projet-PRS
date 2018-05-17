@@ -43,7 +43,7 @@ unsigned int window = 30;
 
 pthread_mutex_t mutex;
 
-void *send_thread() {
+void * send_thread(void *pVoid) {
     unsigned int last_loaded_segment = 0;
     unsigned int p_buff;
     ssize_t snd;
@@ -112,7 +112,7 @@ void *send_thread() {
     pthread_exit(NULL);
 }
 
-void *ack_thread() {
+void * ack_thread(void *pVoid) {
     char ack_buffer[RCVSIZE];
     unsigned int parsed_p_buff;
     unsigned int parsed_ack = 0;
