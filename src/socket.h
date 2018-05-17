@@ -63,9 +63,9 @@ int my_bind(int socket, struct sockaddr* addr);
 
 uint16_t random_port();
 
-int my_accept(int desc);
+int my_accept(int desc, struct sockaddr_in *addr, socklen_t *addrlen);
 
-void send_disconnect_message(int data_desc);
+void send_disconnect_message(int data_desc, struct sockaddr_in *addr);
 
 long timedifference_usec(struct timeval t0, struct timeval t1);
 

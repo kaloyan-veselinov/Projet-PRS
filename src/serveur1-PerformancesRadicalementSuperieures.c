@@ -5,12 +5,14 @@ FILE *file;
 
 int data_desc_open = FALSE;
 int file_open = FALSE;
+struct sockaddr_in addr;
+socklen_t addrlen = sizeof(addr);
 
 void end_handler() {
     fprintf(stderr, "%d entered end_handler\n", getpid());
 
     // Sending FIN
-    send_disconnect_message(data_desc);
+    send_disconnect_message(data_desc, &addr);
     fprintf(stderr, "%d send FIN message\n", getpid());
 
     // Closing data socket and file
@@ -37,7 +39,7 @@ unsigned int nb_sent;
 
 pthread_mutex_t mutex;
 
-void *send_thread() {
+void * send_thread(void *pVoid) {
     unsigned int last_loaded_segment = 0;
     unsigned int p_buff;
     ssize_t snd;
@@ -84,7 +86,7 @@ void *send_thread() {
                 datagram_size = get_datagram_size(segments[p_buff]);
 
                 // Send data to client and get sent time
-                snd = send(data_desc, segments[p_buff].data, datagram_size, 0);
+                snd = sendto(data_desc, segments[p_buff].data, datagram_size, 0, (struct sockaddr *) &addr, addrlen);
                 gettimeofday(&(segments[p_buff].snd_time), 0);
 
                 if (snd > 0) {
@@ -106,7 +108,7 @@ void *send_thread() {
     pthread_exit(NULL);
 }
 
-void *ack_thread() {
+void * ack_thread(void *pVoid) {
     char ack_buffer[RCVSIZE];
     unsigned int parsed_p_buff;
     unsigned int parsed_ack = 0;
@@ -117,7 +119,7 @@ void *ack_thread() {
     do {
         // Waiting for ACK
         memset(ack_buffer, '\0', ACK_SIZE + 1);
-        rcv = recv(data_desc, ack_buffer, ACK_SIZE, 0);
+        rcv = recvfrom(data_desc, ack_buffer, ACK_SIZE, 0, (struct sockaddr *) &addr, &addrlen);
 
         if (rcv > 0) {
             parsed_ack = (unsigned int) atoi(ack_buffer + 3);
@@ -153,15 +155,35 @@ void *ack_thread() {
     pthread_exit(NULL);
 }
 
-void handle_client(int desc) {
+void handle_client(int data_desc) {
+    char buffer[RCVSIZE] = {0};
+    ssize_t file_size;
+
+    // Waiting for file name on data soc
+    if (recvfrom(data_desc, buffer, sizeof(buffer), 0, (struct sockaddr *) &addr, &addrlen) == -1)
+        perror("Error receiving file name\n");
+
+    // Opening file
+    file = fopen(buffer, "r");
+    if (file == NULL) {
+        perror("Error opening file\n");
+        end_handler();
+    }
+    file_open = TRUE;
+
+    fseek(file, 0L, SEEK_END);
+    file_size = ftell(file);
+    fseek(file, 0L, SEEK_SET);
+    nb_segment = (int) ceil(((double)file_size) / DATA_SIZE) ;
+    fprintf(stderr, "segments to send %d\n", nb_segment);
+
+
     pthread_t snd;
     pthread_t ack;
 
     pthread_mutex_init(&mutex, NULL);
 
-    set_timeout(desc, 0, 0);
-
-    data_desc = desc;
+    set_timeout(data_desc, 0, 0);
 
     if (pthread_create(&snd, NULL, send_thread, NULL) != 0) {
         perror("Error creating send thread");
@@ -180,10 +202,8 @@ void handle_client(int desc) {
 }
 
 int main(int argc, char const *argv[]) {
-    char buffer[RCVSIZE] = {0};
     uint16_t port;
     int desc;
-    ssize_t file_size;
 
     signal(SIGTSTP, (__sighandler_t) end_handler);
 
@@ -196,31 +216,14 @@ int main(int argc, char const *argv[]) {
 
     // Create public connection socket
     desc = create_socket(port);
+    fprintf(stderr, "Created public socket on %d\n", desc);
 
     // Initialize the timeout
-    data_desc = my_accept(desc);
+    data_desc = my_accept(desc, &addr, &addrlen);
     data_desc_open = TRUE;
 
     // Closing public connection socket
     close(desc);
-
-    // Waiting for file name on public soc
-    if (recv(data_desc, buffer, sizeof(buffer), 0) == -1)
-        perror("Error receiving file name\n");
-
-    // Opening file
-    file = fopen(buffer, "r");
-    if (file == NULL) {
-        perror("Error opening file\n");
-        end_handler();
-    }
-    file_open = TRUE;
-
-    fseek(file, 0L, SEEK_END);
-    file_size = ftell(file);
-    fseek(file, 0L, SEEK_SET);
-    nb_segment = (int) ceil(((double)file_size) / DATA_SIZE) ;
-    fprintf(stderr, "segments to send %d\n", nb_segment);
 
     handle_client(data_desc);
 
