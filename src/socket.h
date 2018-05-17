@@ -28,7 +28,7 @@
 #define DATA_SIZE (RCVSIZE-HEADER_SIZE*sizeof(char))
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)
-#define BUFFER_SIZE 100
+#define BUFFER_SIZE 1000
 #define G 0.125
 #define H 0.25
 

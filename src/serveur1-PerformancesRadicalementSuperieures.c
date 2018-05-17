@@ -34,8 +34,7 @@ int nb_segment;
 SEGMENT segments[BUFFER_SIZE];
 unsigned int sequence_number = 1;
 unsigned int max_ack = 0;
-unsigned int window = 10;
-unsigned int nb_sent;
+unsigned int window = 30;
 
 pthread_mutex_t mutex;
 
@@ -156,6 +155,28 @@ void *ack_thread() {
 }
 
 void handle_client(int desc) {
+    char buffer[RCVSIZE] = {0};
+    ssize_t file_size;
+
+    // Waiting for file name on public soc
+    if (recv(data_desc, buffer, sizeof(buffer), 0) == -1)
+        perror("Error receiving file name\n");
+
+    // Opening file
+    file = fopen(buffer, "r");
+    if (file == NULL) {
+        perror("Error opening file\n");
+        end_handler();
+    }
+    file_open = TRUE;
+
+    fseek(file, 0L, SEEK_END);
+    file_size = ftell(file);
+    fseek(file, 0L, SEEK_SET);
+    nb_segment = (int) ceil(((double)file_size) / DATA_SIZE) ;
+    fprintf(stderr, "segments to send %d\n", nb_segment);
+
+
     pthread_t snd;
     pthread_t ack;
 
@@ -182,10 +203,8 @@ void handle_client(int desc) {
 }
 
 int main(int argc, char const *argv[]) {
-    char buffer[RCVSIZE] = {0};
     uint16_t port;
     int desc;
-    ssize_t file_size;
 
     signal(SIGTSTP, (__sighandler_t) end_handler);
 
@@ -205,24 +224,6 @@ int main(int argc, char const *argv[]) {
 
     // Closing public connection socket
     close(desc);
-
-    // Waiting for file name on public soc
-    if (recv(data_desc, buffer, sizeof(buffer), 0) == -1)
-        perror("Error receiving file name\n");
-
-    // Opening file
-    file = fopen(buffer, "r");
-    if (file == NULL) {
-        perror("Error opening file\n");
-        end_handler();
-    }
-    file_open = TRUE;
-
-    fseek(file, 0L, SEEK_END);
-    file_size = ftell(file);
-    fseek(file, 0L, SEEK_SET);
-    nb_segment = (int) ceil(((double)file_size) / DATA_SIZE) ;
-    fprintf(stderr, "segments to send %d\n", nb_segment);
 
     handle_client(data_desc);
 
