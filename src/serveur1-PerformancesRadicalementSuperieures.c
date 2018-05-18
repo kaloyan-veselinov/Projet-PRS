@@ -114,6 +114,12 @@ void * ack_thread(void *pVoid) {
     unsigned int local_max_ack = 0;
     int nb_ack;
     ssize_t rcv;
+    struct timeval ack_time;
+    RTT_DATA rtt_data;
+    rtt_data.srtt = 1000000;
+    rtt_data.rttvar = 0;
+
+    set_timeout(data_desc, 0, 1000000);
 
     do {
         // Waiting for ACK
@@ -125,9 +131,7 @@ void * ack_thread(void *pVoid) {
             parsed_p_buff = parsed_ack % BUFFER_SIZE;
             printf("Received ACK %d\n", parsed_ack);
 
-            pthread_mutex_lock(&mutex);
             nb_ack = ++segments[parsed_p_buff].nb_ack;
-            pthread_mutex_unlock(&mutex);
 
             if (parsed_ack > local_max_ack) {
                 local_max_ack = parsed_ack;
@@ -136,14 +140,23 @@ void * ack_thread(void *pVoid) {
                 max_ack = local_max_ack;
                 pthread_mutex_unlock(&mutex);
             }
-
-            if (nb_ack >= 3 && parsed_ack < sequence_number) {
+            if(nb_ack == 1){
+                // Karn's algorithm, updating rto only if no retransmission and no duplicated ACK
+                gettimeofday(&ack_time, 0);
+                rtt_data.rtt = timedifference_usec(segments[parsed_p_buff].snd_time, ack_time);
+                update_rto(&rtt_data);
+                set_timeout(data_desc, 0, rtt_data.rto);
+            } else if (nb_ack >= 3 && parsed_ack < sequence_number) {
                 // Duplicated ACK, resending only if segment in current window
                 printf("Duplicated ACK on %d \n", parsed_ack);
                 pthread_mutex_lock(&mutex);
                 max_ack = local_max_ack;
                 pthread_mutex_unlock(&mutex);
             }
+        } else if (errno == EWOULDBLOCK){
+            pthread_mutex_lock(&mutex);
+            window /= 2;
+            pthread_mutex_unlock(&mutex);
         } else {
             perror("Unknown error receiving file\n");
             exit(EXIT_FAILURE);
