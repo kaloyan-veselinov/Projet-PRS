@@ -29,29 +29,11 @@
 #define ACK_SIZE (HEADER_SIZE+3)
 #define SYN_SIZE 4*sizeof(char)
 #define BUFFER_SIZE 1000
-#define G 0.125
-#define H 0.25
 
 typedef struct segment {
     char data[RCVSIZE];
     size_t data_size;
-    struct timeval snd_time;
-    unsigned int nb_ack;
 }SEGMENT;
-
-typedef struct rtt_data {
-    long srtt;
-    long rto;
-    long rttvar;
-    long rtt;
-}RTT_DATA;
-
-typedef struct thread_data{
-    SEGMENT segments[BUFFER_SIZE];
-    int sequence_number;
-    int window;
-    int nb_sent;
-}THREAD_DATA;
 
 struct sockaddr_in init_addr(uint16_t port, uint32_t addr);
 
@@ -66,9 +48,5 @@ uint16_t random_port();
 int my_accept(int desc, struct sockaddr_in *addr, socklen_t *addrlen);
 
 void send_disconnect_message(int data_desc, struct sockaddr_in addr, socklen_t addrlen);
-
-long timedifference_usec(struct timeval t0, struct timeval t1);
-
-void update_rto(RTT_DATA *rtt_data);
 
 #endif

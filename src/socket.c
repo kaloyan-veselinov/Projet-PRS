@@ -96,26 +96,6 @@ int my_accept(int desc, struct sockaddr_in *addr, socklen_t *addrlen) {
     return data_desc;
 }
 
-long timedifference_usec(struct timeval t0, struct timeval t1) {
-    return (t1.tv_sec - t0.tv_sec) * 1000000 + (t1.tv_usec - t0.tv_usec);
-}
-
-void update_rto(RTT_DATA *rtt_data) {
-    long delta = rtt_data->rtt - rtt_data->srtt;
-
-    rtt_data->srtt += G * delta;
-    rtt_data->rttvar += H * (abs((int) delta) - rtt_data->rttvar);
-    rtt_data->rto = rtt_data->srtt + 4 * (rtt_data->rttvar);
-}
-
-void set_timeout(int desc, long tv_sec, long tv_usec) {
-    struct timeval tv;
-
-    tv.tv_sec = tv_sec;
-    tv.tv_usec = tv_usec;
-    setsockopt(desc, SOL_SOCKET, SO_RCVTIMEO, (const char *) &tv, sizeof tv);
-}
-
 int disconnect_udp_sock(int fd) {
     struct sockaddr_in sin;
 
