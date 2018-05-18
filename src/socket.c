@@ -104,11 +104,24 @@ int disconnect_udp_sock(int fd) {
     return (connect(fd, (struct sockaddr *)&sin, sizeof(sin)));
 }
 
+void set_timeout(int desc, long tv_sec, long tv_usec) {
+    struct timeval tv;
+
+    tv.tv_sec = tv_sec;
+    tv.tv_usec = tv_usec;
+    setsockopt(desc, SOL_SOCKET, SO_RCVTIMEO, (const char *) &tv, sizeof tv);
+}
+
 void send_disconnect_message(int data_desc, struct sockaddr_in addr, socklen_t addrlen) {
     disconnect_udp_sock(data_desc);
-    ssize_t snd;
-    do{
+    set_timeout(data_desc, 1,0);
+    ssize_t snd, rcv;
+    char buff[ACK_SIZE+1]={0};
+
+    for(;;){
         snd = sendto(data_desc, "FIN", 4*sizeof(char), 0, (struct sockaddr *) &addr, addrlen);
-        if(snd < 0) perror("Error sending FIN\n");
-    } while(snd != 0);
+        if(snd == 0) perror("Error sending FIN\n");
+        rcv = recvfrom(data_desc, buff, ACK_SIZE, 0, (struct sockaddr *) &addr, &addrlen);
+        if (rcv<0 && errno==EWOULDBLOCK) break;
+    }
 }

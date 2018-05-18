@@ -17,9 +17,7 @@ int nb_segment;
 
 SEGMENT segments[BUFFER_SIZE];
 unsigned int max_ack = 0;
-#define WINDOW 300
-
-pthread_mutex_t mutex;
+#define WINDOW 30
 
 pid_t pid;
 
@@ -46,7 +44,7 @@ size_t get_datagram_size(size_t data_size) {
     return data_size + (HEADER_SIZE * sizeof(char));
 }
 
-void send_thread(void *pVoid) {
+void send_thread() {
     unsigned int last_loaded_segment = 0;
     unsigned int p_buff;
     ssize_t snd;
@@ -55,12 +53,11 @@ void send_thread(void *pVoid) {
     unsigned int local_max_ack = 0;
 
     while (local_max_ack < nb_segment) {
-
-        pthread_mutex_lock(&mutex);
+//        pthread_mutex_lock(&mutex);
         local_max_ack = max_ack;
-        pthread_mutex_unlock(&mutex);
+//        pthread_mutex_unlock(&mutex);
 
-        local_sequence_number = local_max_ack + 1;
+        local_sequence_number = local_max_ack+1;
         local_nb_sent = 0;
 
         while (local_sequence_number <= nb_segment && local_nb_sent < WINDOW) {
@@ -79,7 +76,7 @@ void send_thread(void *pVoid) {
             snd = send(data_desc, segments[p_buff].data, segments[p_buff].data_size, 0);
 
             if (snd > 0) {
-                printf("Sent segment %06d\n", local_sequence_number);
+                //printf("Sent segment %d\n", local_sequence_number);
                 local_nb_sent++;
                 local_sequence_number++;
             } else {
@@ -87,30 +84,43 @@ void send_thread(void *pVoid) {
                 exit(EXIT_FAILURE);
             }
         }
+//        usleep(50);
     }
-    fprintf(stderr, "Exiting send thread\n");
 }
 
-void *ack_thread(void *pVoid) {
-    char ack_buffer[RCVSIZE];
+void *ack_thread() {
+    char ack_buffer[ACK_SIZE+1];
     unsigned int parsed_ack = 0;
     unsigned int local_max_ack = 0;
     ssize_t rcv;
+    unsigned last_ack = 0;
 
     while (local_max_ack < nb_segment) {
+        memset(ack_buffer, 0, ACK_SIZE+1);
         rcv = recv(data_desc, ack_buffer, ACK_SIZE, 0);
 
         if (rcv > 0) {
-            parsed_ack = (unsigned int) atoi(ack_buffer + 3);
-            printf("Received ACK %d\n", parsed_ack);
+            errno = 0;
+            parsed_ack = (unsigned int) strtol(ack_buffer + 3, NULL, 10);
+            if(errno != 0) perror("Error parsing ack");
+            //printf("%d received ack %d\n", getpid(), parsed_ack);
 
             if (parsed_ack > local_max_ack) {
                 local_max_ack = parsed_ack;
 
-                pthread_mutex_lock(&mutex);
+//                pthread_mutex_lock(&mutex);
                 max_ack = local_max_ack;
-                pthread_mutex_unlock(&mutex);
+//                pthread_mutex_unlock(&mutex);
             }
+            if(parsed_ack == last_ack){
+                //printf("ACK dupliqué en %d\n", parsed_ack);
+                local_max_ack = parsed_ack;
+
+//                pthread_mutex_lock(&mutex);
+                max_ack = local_max_ack;
+//                pthread_mutex_unlock(&mutex);
+            }
+            last_ack = parsed_ack;
         } else {
             perror("Unknown error receiving file\n");
             exit(EXIT_FAILURE);
@@ -143,18 +153,17 @@ void handle_client(int desc) {
 
     pthread_t ack;
 
-    pthread_mutex_init(&mutex, NULL);
+//    pthread_mutex_init(&mutex, NULL);
 
     data_desc = desc;
 
-    if (pthread_create(&ack, NULL, ack_thread, NULL) != 0) {
+    if (pthread_create(&ack, NULL, (void *(*)(void *)) ack_thread, NULL) != 0) {
         perror("Error creating ack thread");
         exit(EXIT_FAILURE);
     }
 
-    send_thread(NULL);
+    send_thread();
 
-    fprintf(stderr, "Threads joined\n");
     end_handler();
 }
 
