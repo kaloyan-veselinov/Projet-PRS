@@ -30,6 +30,11 @@
 #define SYN_SIZE 4*sizeof(char)
 #define BUFFER_SIZE 1000
 
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+
 typedef struct segment {
     char data[RCVSIZE];
     size_t data_size;

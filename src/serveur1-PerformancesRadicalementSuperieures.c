@@ -1,5 +1,7 @@
 #include "socket.h"
 
+#define MIN_WINDOW 4
+
 int data_desc;
 int data_desc_open = FALSE;
 
@@ -13,8 +15,9 @@ int nb_segment;
 
 SEGMENT segments[BUFFER_SIZE];
 unsigned int max_ack = 0;
-#define WINDOW 50
+unsigned int window = MIN_WINDOW;
 
+unsigned int ssthresh = 65000;
 //pthread_mutex_t mutex;
 
 
@@ -55,7 +58,7 @@ void send_thread() {
         local_sequence_number = local_max_ack+1;
         local_nb_sent = 0;
 
-        while (local_sequence_number <= nb_segment && local_nb_sent < WINDOW) {
+        while (local_sequence_number <= nb_segment && local_nb_sent < window) {
             p_buff = local_sequence_number % BUFFER_SIZE;
 
             // Load data only if datagram hasn't been loaded yet
@@ -79,7 +82,7 @@ void send_thread() {
                 exit(EXIT_FAILURE);
             }
         }
-//        usleep(50);
+       usleep(50);
     }
 }
 
@@ -89,6 +92,8 @@ void *ack_thread() {
     unsigned int local_max_ack = 0;
     ssize_t rcv;
     unsigned last_ack = 0;
+
+    int i = 0;
 
     while (local_max_ack < nb_segment) {
         memset(ack_buffer, 0, ACK_SIZE+1);
@@ -106,15 +111,34 @@ void *ack_thread() {
 //                pthread_mutex_lock(&mutex);
                 max_ack = local_max_ack;
 //                pthread_mutex_unlock(&mutex);
-            }
-            if(parsed_ack == last_ack){
+
+                if (window < ssthresh) {
+                    window ++;
+                } else {
+                    i++;
+                    if (i == window) {
+                        i=0;
+                        window ++;
+                    }
+                }
+                printf("============================Window increased to %d\n", window);
+
+            }else if(parsed_ack == last_ack){
                 //printf("ACK dupliqué en %d\n", parsed_ack);
                 local_max_ack = parsed_ack;
 
 //                pthread_mutex_lock(&mutex);
                 max_ack = local_max_ack;
 //                pthread_mutex_unlock(&mutex);
+
+                printf("Duplicated ACK on %d \n", parsed_ack);
+
+                ssthresh = max(window / 2,2);
+                window = MIN_WINDOW;
+
+                printf("=============================Reduced ssthresh to %d\n", ssthresh);
             }
+
             last_ack = parsed_ack;
         } else {
             perror("Unknown error receiving file\n");
